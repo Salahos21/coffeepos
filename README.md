@@ -1,55 +1,72 @@
-# Tactile POS Prototype
+# Tactile POS - Point of Sale Application
 
-Tactile POS is a responsive, Flutter-based Point of Sale (POS) prototype designed primarily for tablets but responsive enough to work on smaller, portrait screens. It features a modern, clean UI, local data persistence using SQLite, and a reactive cart system.
+Tactile POS is a modern, tablet-optimized Point of Sale (POS) application built with Flutter. It utilizes a local SQLite database for offline-first performance and features a responsive layout designed for high-traffic retail environments like coffee shops or small restaurants.
 
-## 🚀 Key Features
+## 1. Key Features
+*   **PIN-Based Authentication**: Secure login system with unique 4-digit PINs for different staff members.
+*   **Role-Based Access Control (RBAC)**: Tailored UI experiences for **Managers** and **Baristas**.
+*   **Digital Register**: Product grid with category filtering, search, and a real-time order sidebar.
+*   **Business Analytics**: A visual dashboard using `fl_chart` showing daily revenue and top-selling items.
+*   **Store Management**: Admin tools to manage staff members, product inventory, and categories.
+*   **Persistent Storage**: Full SQLite integration for orders, products, and user data.
 
-*   **Responsive Layout:**
-    *   Wide Screens (Tablets/Web): Displays a persistent left navigation rail, central product grid, and an always-visible right sidebar for the active order.
-    *   Narrow Screens (Mobile): Condenses the active order sidebar into a slide-out drawer accessible via an app bar icon, ensuring the center catalog remains usable.
-*   **Local Database:** Uses `sqflite` to persistently store and retrieve the product catalog locally on the device.
-*   **Auto-Seeding:** Automatically populates the SQLite database with a default menu if it is initially empty.
-*   **State Management:** Utilizes a custom `ChangeNotifier` (`CartState`) combined with `ListenableBuilder` to handle cart updates, subtotal, tax calculation, and triggering UI rebuilds efficiently and robustly without using heavy external dependencies.
-*   **Dynamic Filtering & Search:**
-    *   Filter products by categories (e.g., Espresso, Brew, Pastry, etc.).
-    *   Search products by name dynamically.
+## 2. Architecture & State Management
+*   **Persistence Layer (`sqflite`)**: Handles all CRUD operations. The `DatabaseHelper` follows a Singleton pattern and manages schema migrations.
+*   **State Management**: 
+    *   **Global States**: Located in `app_models.dart`, providing easy access to `currentUser` and the `cartState`.
+    *   **Reactivity**: Uses `ListenableBuilder` and `ChangeNotifier` for the shopping cart to ensure the UI updates instantly when items are added or quantities change.
+*   **Responsive Layout**: Uses a `Row` based layout for wide screens (tablets) with a `POSSideNav` and `POSActiveOrderSidebar`, while falling back to a `Drawer` for smaller portrait orientations.
 
-## 🛠 Tech Stack & Dependencies
+## 3. Data Models (`lib/models/app_models.dart`)
+| Model | Description |
+| :--- | :--- |
+| `PosUser` | Staff data: name, role (Manager/Barista), and 4-digit PIN. |
+| `Product` | Item details: name, price, category, image path (local/web), and description. |
+| `ProductCategory` | Organizational labels for the product grid. |
+| `PosOrder` | Completed transaction: date, total, items summary, and the `cashierName`. |
+| `CartItem` | Temporary item in the active order, tracking quantity and modifiers. |
 
-*   [Flutter](https://flutter.dev/) - Framework
-*   [Dart](https://dart.dev/) - Programming Language
-*   [sqflite](https://pub.dev/packages/sqflite) - SQLite plugin for Flutter used for local databases.
-*   [path_provider](https://pub.dev/packages/path_provider) - Used to find appropriate local directories for the database file.
-*   [path](https://pub.dev/packages/path) - A comprehensive, cross-platform path manipulation library.
+## 4. Role-Based Access Control (RBAC)
+The application dynamically adjusts the UI based on the `currentUser.role`:
 
-## 📁 Project Structure
+### Barista Privileges:
+*   **Register**: Full access to take orders and checkout.
+*   **Orders**: Can see **only their own** past orders and personal performance metrics.
+*   **Security**: The **Config** (Settings) tab is hidden.
 
-The key source files are located in the `lib` directory:
+### Manager Privileges:
+*   **Full Register Access**: Can perform all barista tasks.
+*   **Store Analytics**: Can view total store revenue and all-time history for all staff.
+*   **Configuration**: Exclusive access to the "Staff" management tab (add/delete employees) and Inventory management (products/categories).
 
-*   **`main.dart`**: Contains the vast majority of the UI logic, the application entry point, state management (`CartState`), data models (`Product`, `CartItem`), and layout components. Key widgets include:
-    *   `TactilePOSApp`: Root application widget setting up the theme.
-    *   `POSMainLayout`: Controls the high-level responsive screen structure (Nav / Center / Sidebar or Drawer).
-    *   `POSCenterArea`: Handles the database fetching, UI filtering (search & categories), and building out the product grid.
-    *   `POSActiveOrderSidebar`: Renders the shopping cart items, recalculates totals, checkout dialog logic, and modifier info.
-*   **`database_helper.dart`**: A Singleton pattern class managing the SQLite database instance, table creation, and performing asynchronous CRUD operations (like `insertProduct` and `getAllProducts`).
+## 5. Project Structure
 
-## ⚙️ Getting Started
+```
+lib/
+├── components/           # Reusable UI widgets
+│   ├── side_nav.dart     # Role-based navigation & Logout
+│   ├── center_area.dart  # Product grid & Search
+│   └── active_order_sidebar.dart # Cart & Checkout logic
+├── models/
+│   └── app_models.dart   # Data structures & Global states
+├── screens/
+│   ├── login_screen.dart # PIN entry & Authentication
+│   ├── orders_screen.dart# Analytics & History
+│   └── config_screen.dart# Staff & Inventory Management
+├── database_helper.dart  # SQLite Singleton & SQL Queries
+└── main.dart             # App entry & Main layout routing
+```
 
-To get started with this application, ensure you have Flutter installed on your machine.
+## 6. Configuration & Setup
+The project depends on the following key packages:
+*   `sqflite` & `path_provider`: Local database storage.
+*   `fl_chart`: Business intelligence visualizations.
+*   `image_picker`: For uploading product photos from the gallery.
 
-1.  Clone this repository or maintain it in your local workspace.
-2.  Install all the Pub dependencies.
-    ```bash
-    flutter pub get
-    ```
-3.  Run the application on an emulator, physical device, or desktop (macOS/Windows/Linux).
-    ```bash
-    flutter run
-    ```
+### Database Seeding
+Upon first launch (or database version upgrade), the system automatically creates default accounts:
+*   **Manager**: Alice (PIN: `1234`)
+*   **Barista**: Bob (PIN: `0000`)
 
-## 📝 Future Improvements
-
-*   Implement the Orders / Receipts tables in the database to record transaction history post-checkout.
-*   Complete the implementation for nested side navigation routes (Orders, Inventory, Customers, Reports).
-*   Add customizable product modifiers (e.g., Milk substitutions, sizing).
-*   Persistent Cart state tracking.
+---
+*Documentation Generated: October 2023*
