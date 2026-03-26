@@ -276,7 +276,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
-                      value: _selectedCategory,
+                      initialValue: _selectedCategory,
                       items: categories.map((cat) => DropdownMenuItem(value: cat.name, child: Text(cat.name))).toList(),
                       onChanged: (val) => setState(() => _selectedCategory = val),
                     ),
@@ -374,7 +374,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
-                      value: _selectedRole,
+                      initialValue: _selectedRole,
                       items: const [
                         DropdownMenuItem(value: 'Manager', child: Text('Manager')),
                         DropdownMenuItem(value: 'Barista', child: Text('Barista')),

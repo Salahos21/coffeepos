@@ -47,7 +47,7 @@ class POSSideNav extends StatelessWidget {
           Column(
             children: [
               CircleAvatar(
-                backgroundColor: const Color(0xFF006E3B).withOpacity(0.1),
+                backgroundColor: const Color(0xFF006E3B).withValues(alpha: 0.1),
                 child: Text(
                   (currentUser?.name ?? 'U')[0].toUpperCase(),
                   style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold),
