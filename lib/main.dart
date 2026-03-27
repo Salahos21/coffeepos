@@ -1,15 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-// 1. Import our clean components and screens
+// Imports for our clean components and screens
 import 'components/side_nav.dart';
 import 'components/center_area.dart';
 import 'components/active_order_sidebar.dart';
 import 'screens/config_screen.dart';
 import 'screens/orders_screen.dart';
-import 'screens/login_screen.dart'; // Add this line
+import 'screens/login_screen.dart';
+import 'theme/app_theme.dart';
+import 'providers/auth_provider.dart';
 
-void main() {
-  runApp(const TactilePOSApp());
+void main() async {
+  // Ensure Flutter framework is ready
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Pre-load the theme settings from SharedPreferences
+  final themeProvider = ThemeProvider();
+  await themeProvider.loadTheme();
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: themeProvider),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+      ],
+      child: const TactilePOSApp(),
+    ),
+  );
 }
 
 class TactilePOSApp extends StatelessWidget {
@@ -20,14 +38,8 @@ class TactilePOSApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Tactile POS',
-      theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFFFCF8F8),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF006E3B),
-        ),
-        useMaterial3: true,
-      ),
-      home: const LoginScreen(), // Changed from POSMainLayout to LoginScreen
+      theme: context.watch<ThemeProvider>().themeData,
+      home: const LoginScreen(),
     );
   }
 }
@@ -40,7 +52,6 @@ class POSMainLayout extends StatefulWidget {
 }
 
 class _POSMainLayoutState extends State<POSMainLayout> {
-  // NEW: State variable to track the active screen (0 = Register, 2 = Config)
   int _selectedIndex = 0;
 
   @override
@@ -54,7 +65,7 @@ class _POSMainLayoutState extends State<POSMainLayout> {
       ) : null,
       body: Row(
         children: [
-          // 1. LEFT NAVIGATION PANEL (Now dynamic!)
+          // 1. LEFT NAVIGATION PANEL
           POSSideNav(
             selectedIndex: _selectedIndex,
             onItemSelected: (index) {
@@ -66,14 +77,14 @@ class _POSMainLayoutState extends State<POSMainLayout> {
 
           const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
 
-          // 2. CENTER CONTENT AREA (Swaps based on the selected index)
+          // 2. CENTER CONTENT AREA
           Expanded(
             child: _selectedIndex == 0
-                ? const POSCenterArea()     // The Register
+                ? const POSCenterArea()
                 : _selectedIndex == 1
-                ? const OrdersScreen()   // The Order History
+                ? const OrdersScreen()
                 : _selectedIndex == 2
-                ? const ConfigScreen() // The Configuration
+                ? const ConfigScreen()
                 : const Center(
               child: Text(
                 'Unknown Screen',
@@ -83,7 +94,6 @@ class _POSMainLayoutState extends State<POSMainLayout> {
           ),
 
           // 3. RIGHT ACTIVE ORDER SIDEBAR
-          // (Only show the cart if we are on wide screen AND on the Register page!)
           if (!isPortrait && _selectedIndex == 0)
             const POSActiveOrderSidebar(),
         ],

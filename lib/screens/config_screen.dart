@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../models/app_models.dart';
 import '../database_helper.dart';
+import '../providers/auth_provider.dart';
+import '../theme/app_theme.dart';
 
 class ConfigScreen extends StatefulWidget {
   const ConfigScreen({super.key});
@@ -46,6 +49,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final dbProducts = await DatabaseHelper.instance.getAllProducts();
     final dbUsers = await DatabaseHelper.instance.getAllUsers();
 
+    if (!mounted) return;
+
     setState(() {
       categories = dbCategories;
       products = dbProducts;
@@ -59,12 +64,14 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final text = _categoryController.text.trim();
     if (text.isEmpty) return;
     await DatabaseHelper.instance.insertCategory(ProductCategory(name: text));
+    if (!mounted) return;
     _categoryController.clear();
     _loadAllData();
   }
 
   Future<void> _deleteCategory(int id) async {
     await DatabaseHelper.instance.deleteCategory(id);
+    if (!mounted) return;
     _loadAllData();
   }
 
@@ -74,6 +81,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
     if (image != null) {
+      if (!mounted) return;
       setState(() {
         _selectedImagePath = image.path;
       });
@@ -86,6 +94,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final priceText = _prodPriceController.text.trim();
 
     if (name.isEmpty || priceText.isEmpty || _selectedCategory == null || _selectedImagePath == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields and select an image!')),
       );
@@ -104,6 +113,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
     await DatabaseHelper.instance.insertProduct(newProduct);
 
+    if (!mounted) return;
+
     _prodNameController.clear();
     _prodDescController.clear();
     _prodPriceController.clear();
@@ -117,6 +128,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   Future<void> _deleteProduct(int id) async {
     await DatabaseHelper.instance.deleteProduct(id);
+    if (!mounted) return;
     _loadAllData();
   }
 
@@ -126,6 +138,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     final pin = _userPinController.text.trim();
 
     if (name.isEmpty || pin.length != 4) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a name and a 4-digit PIN!')),
       );
@@ -136,6 +149,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     
     try {
       await DatabaseHelper.instance.insertUser(newUser);
+      if (!mounted) return;
       _userNameController.clear();
       _userPinController.clear();
       setState(() {
@@ -143,21 +157,28 @@ class _ConfigScreenState extends State<ConfigScreen> {
       });
       _loadAllData();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Error adding user. PIN might already be in use.')),
       );
     }
   }
 
-  Future<void> _deleteUser(int id, String pin) async {
-    // Prevent deleting the default admin or yourself
-    if (pin == '1234' || id == currentUser?.id) {
+  Future<void> _deleteUser(PosUser userToDelete) async {
+    final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
+    // Prevent deleting your own account or any Manager (Admin) to avoid lockout
+    if (userToDelete.id == currentUser?.id || userToDelete.role == 'Manager') {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cannot delete this account for safety reasons.')),
+        const SnackBar(
+          content: Text('Managers and your own account cannot be deleted for safety.'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
-    await DatabaseHelper.instance.deleteUser(id);
+    await DatabaseHelper.instance.deleteUser(userToDelete.id!);
+    if (!mounted) return;
     _loadAllData();
   }
 
@@ -168,19 +189,19 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
 
     return DefaultTabController(
-      length: 3, // Updated to 3 tabs
+      length: 4, // Increased to 4 tabs
       child: Container(
-        color: const Color(0xFFFCF8F8),
+        color: Theme.of(context).scaffoldBackgroundColor,
         padding: const EdgeInsets.all(32.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Store Configuration', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+            Text('Store Configuration', style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 28)),
             const SizedBox(height: 24),
 
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const TabBar(
@@ -190,7 +211,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 tabs: [
                   Tab(icon: Icon(Icons.folder_outlined), text: 'Categories'),
                   Tab(icon: Icon(Icons.coffee_outlined), text: 'Products'),
-                  Tab(icon: Icon(Icons.people_outline), text: 'Staff'), // Added Staff tab
+                  Tab(icon: Icon(Icons.people_outline), text: 'Staff'),
+                  Tab(icon: Icon(Icons.palette_outlined), text: 'Theme'), // Added Theme tab
                 ],
               ),
             ),
@@ -201,7 +223,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 children: [
                   _buildCategoryTab(),
                   _buildProductTab(),
-                  _buildStaffTab(), // Added Staff tab view
+                  _buildStaffTab(),
+                  _buildThemeTab(), // Added Theme tab view
                 ],
               ),
             ),
@@ -217,7 +240,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       children: [
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16)),
           child: Row(
             children: [
               Expanded(
@@ -230,8 +253,13 @@ class _ConfigScreenState extends State<ConfigScreen> {
               SizedBox(
                 height: 56,
                 child: ElevatedButton.icon(
-                  onPressed: _addCategory, icon: const Icon(Icons.add, color: Colors.white), label: const Text('Add', style: TextStyle(color: Colors.white)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  onPressed: _addCategory,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text('Add', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    minimumSize: const Size(120, 56),
+                  ),
                 ),
               ),
             ],
@@ -242,17 +270,20 @@ class _ConfigScreenState extends State<ConfigScreen> {
           child: categories.isEmpty
               ? const Center(child: Text('No categories found.'))
               : ListView.builder(
-            itemCount: categories.length,
-            itemBuilder: (context, index) {
-              final cat = categories[index];
-              return Card(
-                child: ListTile(
-                  title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteCategory(cat.id!)),
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    final cat = categories[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _deleteCategory(cat.id!),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -263,7 +294,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
       children: [
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -295,6 +326,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                     onPressed: _pickImage,
                     icon: const Icon(Icons.image),
                     label: const Text('Pick Image'),
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(150, 48)),
                   ),
                   if (_selectedImagePath != null)
                     ClipRRect(
@@ -307,7 +339,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
                       onPressed: _addProduct,
                       icon: const Icon(Icons.save, color: Colors.white),
                       label: const Text('Save Product', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B)),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(180, 48),
+                      ),
                     ),
                   ),
                 ],
@@ -320,24 +354,27 @@ class _ConfigScreenState extends State<ConfigScreen> {
           child: products.isEmpty
               ? const Center(child: Text('No products found.'))
               : ListView.builder(
-            itemCount: products.length,
-            itemBuilder: (context, index) {
-              final p = products[index];
-              return Card(
-                child: ListTile(
-                  leading: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: p.image.startsWith('http')
-                        ? Image.network(p.image, width: 50, height: 50, fit: BoxFit.cover)
-                        : Image.file(File(p.image), width: 50, height: 50, fit: BoxFit.cover),
-                  ),
-                  title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('${p.category} • \$${p.price.toStringAsFixed(2)}'),
-                  trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteProduct(p.id!)),
+                  itemCount: products.length,
+                  itemBuilder: (context, index) {
+                    final p = products[index];
+                    return Card(
+                      child: ListTile(
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: p.image.startsWith('http')
+                              ? Image.network(p.image, width: 50, height: 50, fit: BoxFit.cover)
+                              : Image.file(File(p.image), width: 50, height: 50, fit: BoxFit.cover),
+                        ),
+                        title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('${p.category} • \$${p.price.toStringAsFixed(2)}'),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _deleteProduct(p.id!),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -346,10 +383,9 @@ class _ConfigScreenState extends State<ConfigScreen> {
   Widget _buildStaffTab() {
     return Column(
       children: [
-        // Add User Form
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -391,14 +427,15 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   onPressed: _addUser,
                   icon: const Icon(Icons.person_add, color: Colors.white),
                   label: const Text('Add Staff Member', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B)),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(200, 48),
+                  ),
                 ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 24),
-        // Staff List
         Expanded(
           child: users.isEmpty
               ? const Center(child: Text('No staff members found.'))
@@ -416,7 +453,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   subtitle: Text(user.role),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _deleteUser(user.id!, user.pin),
+                    onPressed: () => _deleteUser(user),
                   ),
                 ),
               );
@@ -424,6 +461,90 @@ class _ConfigScreenState extends State<ConfigScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildThemeTab() {
+    final themeProvider = context.watch<ThemeProvider>();
+    
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Select App Appearance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 32),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildThemeOption(
+                context, 
+                AppThemeColor.green, 
+                'Classic Green', 
+                const Color(0xFF006E3B),
+                themeProvider.currentTheme == AppThemeColor.green,
+              ),
+              _buildThemeOption(
+                context, 
+                AppThemeColor.blue, 
+                'Ocean Blue', 
+                const Color(0xFF0056D2),
+                themeProvider.currentTheme == AppThemeColor.blue,
+              ),
+              _buildThemeOption(
+                context, 
+                AppThemeColor.dark, 
+                'Midnight Dark', 
+                const Color(0xFF00E676),
+                themeProvider.currentTheme == AppThemeColor.dark,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeOption(BuildContext context, AppThemeColor theme, String label, Color color, bool isSelected) {
+    return InkWell(
+      onTap: () => context.read<ThemeProvider>().setTheme(theme),
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 160,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: isSelected ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, offset: const Offset(0, 4))] : [],
+              ),
+              child: isSelected ? const Icon(Icons.check, color: Colors.white) : null,
+            ),
+            const SizedBox(height: 16),
+            Text(label, style: TextStyle(
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? color : Colors.black87,
+            )),
+          ],
+        ),
+      ),
     );
   }
 }

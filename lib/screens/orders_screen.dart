@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 import '../database_helper.dart';
 import '../models/app_models.dart';
-import 'dart:math' as math;
+import '../providers/auth_provider.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -13,7 +14,12 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   List<PosOrder> _orders = [];
+  List<PosOrder> _filteredOrders = [];
   bool _isLoading = true;
+
+  // Search & Filter State
+  String _searchQuery = '';
+  DateTimeRange? _dateRange;
 
   // Analytics Data
   double _todayRevenue = 0;
@@ -21,6 +27,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   List<BarChartGroupData> _chartData = [];
   List<MapEntry<String, int>> _topSellers = [];
   List<String> _recentDays = [];
+  Map<String, double> _revenueByBarista = {};
 
   @override
   void initState() {
@@ -29,6 +36,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _fetchAndCalculateData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.currentUser;
+
     // 1. Fetch orders based on role
     final isManager = currentUser?.role == 'Manager';
     List<PosOrder> orders;
@@ -46,6 +56,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     double allTimeTotal = 0;
     Map<String, double> dailyRevenue = {};
     Map<String, int> itemCounts = {};
+    Map<String, double> baristaRevenue = {};
 
     for (var order in orders) {
       allTimeTotal += order.total;
@@ -55,10 +66,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
         todayTotal += order.total;
       }
 
-      // Group for Chart (Daily)
       dailyRevenue[orderDate] = (dailyRevenue[orderDate] ?? 0) + order.total;
+      baristaRevenue[order.cashierName] = (baristaRevenue[order.cashierName] ?? 0) + order.total;
 
-      // Parse Items Summary
       final items = order.itemsSummary.split(', ');
       for (var itemStr in items) {
         final parts = itemStr.split('x ');
@@ -69,6 +79,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
         }
       }
     }
+
+    final sortedBaristas = Map.fromEntries(
+        baristaRevenue.entries.toList()..sort((a, b) => b.value.compareTo(a.value))
+    );
 
     // 3. Prepare Chart Data (Last 7 Days)
     List<BarChartGroupData> barGroups = [];
@@ -94,19 +108,153 @@ class _OrdersScreenState extends State<OrdersScreen> {
       );
     }
 
-    // 4. Get Top 3 Sellers
     final sortedSellers = itemCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     setState(() {
       _orders = orders;
+      _filteredOrders = orders;
       _todayRevenue = todayTotal;
       _allTimeRevenue = allTimeTotal;
       _chartData = barGroups;
       _recentDays = days;
       _topSellers = sortedSellers.take(3).toList();
+      _revenueByBarista = sortedBaristas;
       _isLoading = false;
     });
+  }
+
+  void _filterOrders() {
+    setState(() {
+      _filteredOrders = _orders.where((order) {
+        final matchesSearch = order.itemsSummary.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+            order.cashierName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+            order.id.toString().contains(_searchQuery);
+        
+        bool matchesDate = true;
+        if (_dateRange != null) {
+          final orderDate = DateTime.parse(order.date);
+          matchesDate = orderDate.isAfter(_dateRange!.start.subtract(const Duration(seconds: 1))) && 
+                        orderDate.isBefore(_dateRange!.end.add(const Duration(days: 1)));
+        }
+
+        return matchesSearch && matchesDate;
+      }).toList();
+    });
+  }
+
+  Future<void> _selectDateRange(BuildContext context) async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: _dateRange,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF006E3B),
+              primary: const Color(0xFF006E3B),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+      _filterOrders();
+    }
+  }
+
+  // --- NEW: RECEIPT MODAL ---
+  void _showReceiptModal(BuildContext context, PosOrder order) {
+    // Parse the summary string "2x Latte, 1x Muffin" into a list
+    final List<String> itemLines = order.itemsSummary.split(', ');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), // Classic paper look
+        content: Container(
+          width: 350,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('TACTILE POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24, letterSpacing: 2)),
+              const Text('123 Coffee Lane, Tech City', style: TextStyle(fontSize: 10, color: Colors.grey)),
+              const SizedBox(height: 20),
+              Divider(thickness: 1, color: Colors.grey[300]),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Order #${order.id}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(order.date, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Cashier: ${order.cashierName}', style: const TextStyle(fontSize: 12)),
+              ),
+              Divider(thickness: 1, color: Colors.grey[300]),
+              const SizedBox(height: 10),
+              
+              // Item List
+              ...itemLines.map((line) {
+                final parts = line.split('x ');
+                final qty = parts[0];
+                final name = parts.length > 1 ? parts[1] : line;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Row(
+                    children: [
+                      Text('$qty x', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(name)),
+                    ],
+                  ),
+                );
+              }).toList(),
+
+              const SizedBox(height: 20),
+              Divider(thickness: 2, color: Colors.black87),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                  Text('\$${order.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                ],
+              ),
+              const SizedBox(height: 30),
+              const Text('THANK YOU!', style: TextStyle(fontWeight: FontWeight.w300, letterSpacing: 4)),
+              const SizedBox(height: 10),
+              // Simulated barcode/footer
+              Container(height: 30, width: double.infinity, color: Colors.grey[200]),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CLOSE', style: TextStyle(color: Colors.black54)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {}, // Future: Print logic
+            icon: const Icon(Icons.print, size: 18),
+            label: const Text('PRINT'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF006E3B),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(100, 40),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -115,6 +263,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF006E3B)));
     }
 
+    final authProvider = Provider.of<AuthProvider>(context);
+    final currentUser = authProvider.currentUser;
     final isManager = currentUser?.role == 'Manager';
     final String dashboardTitle = isManager 
         ? 'Store Analytics' 
@@ -136,28 +286,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
             children: [
               _buildSummaryCard('Today\'s Revenue', '\$${_todayRevenue.toStringAsFixed(2)}', Icons.today, const Color(0xFF006E3B)),
               const SizedBox(width: 20),
-              // Only show All-Time Revenue for Managers
               if (isManager)
                 _buildSummaryCard('All-Time Revenue', '\$${_allTimeRevenue.toStringAsFixed(2)}', Icons.account_balance_wallet, Colors.blueGrey)
               else
-                // For Baristas, show their total sales for the selected period (all their orders)
                 _buildSummaryCard('My Total Sales', '\$${_allTimeRevenue.toStringAsFixed(2)}', Icons.person_outline, Colors.blueGrey),
             ],
           ),
           const SizedBox(height: 32),
 
-          // 2. Chart & Top Sellers Row
+          // 2. Chart & Performance Row
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Revenue Chart
               Expanded(
                 flex: 2,
                 child: Container(
-                  height: 300,
+                  height: 350,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFEEDDDD)),
                   ),
@@ -180,7 +327,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 sideTitles: SideTitles(
                                   showTitles: true,
                                   getTitlesWidget: (value, meta) {
-                                    return Text(_recentDays[value.toInt()], style: const TextStyle(fontSize: 10, color: Colors.grey));
+                                    if (value.toInt() < _recentDays.length) {
+                                      return Text(_recentDays[value.toInt()], style: const TextStyle(fontSize: 10, color: Colors.grey));
+                                    }
+                                    return const Text('');
                                   },
                                 ),
                               ),
@@ -193,78 +343,164 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 ),
               ),
               const SizedBox(width: 20),
-              // Top Sellers
               Expanded(
-                child: Container(
-                  height: 300,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFEEDDDD)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Top Sellers', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(height: 16),
-                      if (_topSellers.isEmpty)
-                        const Expanded(child: Center(child: Text('No data')))
-                      else
-                        ..._topSellers.map((e) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500)),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(color: const Color(0xFFF0F7F4), borderRadius: BorderRadius.circular(20)),
-                                child: Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 12)),
+                child: Column(
+                  children: [
+                    Container(
+                      height: isManager ? 165 : 350,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFEEDDDD)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Top Sellers', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          const SizedBox(height: 12),
+                          if (_topSellers.isEmpty)
+                            const Expanded(child: Center(child: Text('No data')))
+                          else
+                            ..._topSellers.map((e) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                                  Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11)),
+                                ],
                               ),
-                            ],
-                          ),
-                        )),
+                            )),
+                        ],
+                      ),
+                    ),
+                    if (isManager) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        height: 165,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFEEDDDD)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Team Performance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: ListView(
+                                children: _revenueByBarista.entries.map((e) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8.0),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                                      Text('\$${e.value.toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11)),
+                                    ],
+                                  ),
+                                )).toList(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
               ),
             ],
           ),
 
           const SizedBox(height: 48),
-          const Text('Order History', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Order History', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  Container(
+                    width: 250,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFEEDDDD)),
+                    ),
+                    child: TextField(
+                      onChanged: (val) {
+                        _searchQuery = val;
+                        _filterOrders();
+                      },
+                      decoration: const InputDecoration(
+                        hintText: 'Search order ID or item...',
+                        hintStyle: TextStyle(fontSize: 12),
+                        prefixIcon: Icon(Icons.search, size: 18),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ActionChip(
+                    avatar: const Icon(Icons.date_range, size: 16),
+                    label: Text(_dateRange == null ? 'All Dates' : 'Filtered'),
+                    onPressed: () => _selectDateRange(context),
+                  ),
+                  if (_dateRange != null)
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                      onPressed: () {
+                        setState(() => _dateRange = null);
+                        _filterOrders();
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
 
-          // 3. The Order List
-          if (_orders.isEmpty)
+          if (_filteredOrders.isEmpty)
             const Center(child: Padding(
               padding: EdgeInsets.all(40.0),
-              child: Text('No orders yet'),
+              child: Text('No orders found matching your filters'),
             ))
           else
             ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _orders.length,
+              itemCount: _filteredOrders.length,
               itemBuilder: (context, index) {
-                final order = _orders[index];
+                final order = _filteredOrders[index];
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   elevation: 0,
+                  clipBehavior: Clip.antiAlias,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: const BorderSide(color: Color(0xFFEEDDDD)),
                   ),
                   child: ListTile(
+                    onTap: () => _showReceiptModal(context, order), // TAP TO VIEW RECEIPT
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     leading: CircleAvatar(
                       backgroundColor: const Color(0xFFF0F7F4),
                       child: Text('#${order.id}', style: const TextStyle(fontSize: 10, color: Color(0xFF006E3B), fontWeight: FontWeight.bold)),
                     ),
                     title: Text(order.itemsSummary, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
-                    subtitle: Text(order.date, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-                    trailing: Text('\$${order.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF006E3B))),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(order.date, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                        if (isManager)
+                          Text('Cashier: ${order.cashierName}', style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic)),
+                      ],
+                    ),
+                    trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                   ),
                 );
               },
@@ -279,7 +515,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFEEDDDD)),
         ),
@@ -287,7 +523,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: color),
             ),
             const SizedBox(width: 20),

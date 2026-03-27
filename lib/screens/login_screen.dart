@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../database_helper.dart';
-import '../models/app_models.dart';
 import '../main.dart';
+import '../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -37,8 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final user = await DatabaseHelper.instance.getUserByPin(_enteredPin);
 
     if (user != null) {
-      currentUser = user;
       if (mounted) {
+        // Correct way to set the user using Provider
+        context.read<AuthProvider>().login(user);
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const POSMainLayout()),

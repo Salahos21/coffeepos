@@ -185,6 +185,5 @@ class PosOrder {
   }
 }
 
-// Our global state instances
+// Our global state instance
 final cartState = CartState();
-PosUser? currentUser;

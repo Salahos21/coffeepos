@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/app_models.dart'; // To access cartState and CartItem
 import '../database_helper.dart';
+import '../providers/auth_provider.dart';
 
 class POSActiveOrderSidebar extends StatelessWidget {
   const POSActiveOrderSidebar({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final currentUser = authProvider.currentUser;
+
     // 1. Wrap the entire sidebar in a ListenableBuilder
     return ListenableBuilder(
         listenable: cartState,

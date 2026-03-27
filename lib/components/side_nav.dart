@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../models/app_models.dart';
+import 'package:provider/provider.dart';
 import '../screens/login_screen.dart';
+import '../providers/auth_provider.dart';
 
 class POSSideNav extends StatelessWidget {
   final int selectedIndex;
@@ -14,6 +15,8 @@ class POSSideNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final currentUser = authProvider.currentUser;
     final isManager = currentUser?.role == 'Manager';
 
     return Container(
@@ -67,7 +70,7 @@ class POSSideNav extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.logout, color: Colors.redAccent, size: 22),
                 onPressed: () {
-                  currentUser = null;
+                  authProvider.logout();
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(builder: (context) => const LoginScreen()),
