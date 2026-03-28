@@ -44,7 +44,7 @@ class ThemeProvider extends ChangeNotifier {
           isDark: true,
         );
       case AppThemeColor.green:
-        return _buildTheme(
+          return _buildTheme(
           primary: const Color(0xFF006E3B),
           background: const Color(0xFFFCF8F8),
           surface: Colors.white,

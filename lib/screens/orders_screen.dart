@@ -59,15 +59,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
     Map<String, double> baristaRevenue = {};
 
     for (var order in orders) {
-      allTimeTotal += order.total;
+      allTimeTotal += order.finalTotal;
       final orderDate = order.date.substring(0, 10);
       
       if (orderDate == todayStr) {
-        todayTotal += order.total;
+        todayTotal += order.finalTotal;
       }
 
-      dailyRevenue[orderDate] = (dailyRevenue[orderDate] ?? 0) + order.total;
-      baristaRevenue[order.cashierName] = (baristaRevenue[order.cashierName] ?? 0) + order.total;
+      dailyRevenue[orderDate] = (dailyRevenue[orderDate] ?? 0) + order.finalTotal;
+      baristaRevenue[order.cashierName] = (baristaRevenue[order.cashierName] ?? 0) + order.finalTotal;
 
       final items = order.itemsSummary.split(', ');
       for (var itemStr in items) {
@@ -167,18 +167,125 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  // --- NEW: RECEIPT MODAL ---
-  void _showReceiptModal(BuildContext context, PosOrder order) {
-    // Parse the summary string "2x Latte, 1x Muffin" into a list
-    final List<String> itemLines = order.itemsSummary.split(', ');
+// --- CLOSE SHIFT DIALOG ---
+  void _showCloseShiftDialog(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.currentUser!;
+    final isBlindDrop = await DatabaseHelper.instance.getBlindDropSetting();
 
+    final now = DateTime.now();
+    final todayStr = now.toString().substring(0, 10);
+    double todaySales = _orders
+        .where((o) => o.date.startsWith(todayStr))
+        .fold(0, (sum, o) => sum + o.finalTotal);
+
+    final TextEditingController startingCashController = TextEditingController(text: "100.00");
+    final TextEditingController actualCashController = TextEditingController();
+
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            double startingCash = double.tryParse(startingCashController.text) ?? 0;
+            double actualCash = double.tryParse(actualCashController.text) ?? 0;
+            double expectedCash = startingCash + todaySales;
+            double variance = actualCash - expectedCash;
+
+            bool hideMath = (user.role == 'Barista' && isBlindDrop);
+
+            return AlertDialog(
+              title: const Text('Close Shift Report'),
+              content: SizedBox(
+                width: 400,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: startingCashController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Starting Cash (\$)', border: OutlineInputBorder()),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: actualCashController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Actual Cash Counted (\$)', border: OutlineInputBorder()),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // SAFE SYNTAX: Replaced the spread operator with a standard ternary check
+                    hideMath
+                        ? const SizedBox.shrink() // <-- Invisible, zero-pixel widget
+                        : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Divider(),
+                        _buildSummaryRow('Today\'s Sales', '\$${todaySales.toStringAsFixed(2)}'),
+                        _buildSummaryRow('Expected in Drawer', '\$${expectedCash.toStringAsFixed(2)}'),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Variance', style: TextStyle(fontWeight: FontWeight.bold)),
+                            Text(
+                              '\$${variance.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: variance >= 0 ? Colors.green : Colors.red,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B)),
+                  onPressed: () async {
+                    final report = ShiftReport(
+                      date: DateTime.now().toString().substring(0, 16),
+                      employeeName: user.name,
+                      startingCash: startingCash,
+                      totalSales: todaySales,
+                      expectedCash: expectedCash,
+                      actualCash: actualCash,
+                      variance: variance,
+                    );
+                    await DatabaseHelper.instance.insertShiftReport(report);
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Shift Closed & Report Saved!'), backgroundColor: Color(0xFF006E3B)),
+                      );
+                    }
+                  },
+                  child: const Text('SUBMIT REPORT', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
+      ),
+    );
+  }
+
+  void _showReceiptModal(BuildContext context, PosOrder order) {
+    final List<String> itemLines = order.itemsSummary.split(', ');
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), // Classic paper look
-        content: Container(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)),
+        content: SizedBox(
           width: 350,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -201,8 +308,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
               Divider(thickness: 1, color: Colors.grey[300]),
               const SizedBox(height: 10),
-              
-              // Item List
               ...itemLines.map((line) {
                 final parts = line.split('x ');
                 final qty = parts[0];
@@ -217,8 +322,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                   ),
                 );
-              }).toList(),
-
+              }),
               const SizedBox(height: 20),
               Divider(thickness: 2, color: Colors.black87),
               const SizedBox(height: 8),
@@ -226,32 +330,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('TOTAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-                  Text('\$${order.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                  Text('\$${order.finalTotal.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
                 ],
               ),
               const SizedBox(height: 30),
               const Text('THANK YOU!', style: TextStyle(fontWeight: FontWeight.w300, letterSpacing: 4)),
               const SizedBox(height: 10),
-              // Simulated barcode/footer
               Container(height: 30, width: double.infinity, color: Colors.grey[200]),
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CLOSE', style: TextStyle(color: Colors.black54)),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {}, // Future: Print logic
-            icon: const Icon(Icons.print, size: 18),
-            label: const Text('PRINT'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF006E3B),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(100, 40),
-            ),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CLOSE', style: TextStyle(color: Colors.black54))),
+          ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.print, size: 18), label: const Text('PRINT'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B), foregroundColor: Colors.white, minimumSize: const Size(100, 40))),
         ],
       ),
     );
@@ -266,18 +357,28 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final currentUser = authProvider.currentUser;
     final isManager = currentUser?.role == 'Manager';
-    final String dashboardTitle = isManager 
-        ? 'Store Analytics' 
-        : 'My Daily Performance';
+    final String dashboardTitle = isManager ? 'Store Analytics' : 'My Daily Performance';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            dashboardTitle,
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: -0.5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(dashboardTitle, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+              ElevatedButton.icon(
+                onPressed: () => _showCloseShiftDialog(context),
+                icon: const Icon(Icons.lock_clock),
+                label: const Text('Close Shift'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade800,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(160, 48),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
 
@@ -303,11 +404,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 child: Container(
                   height: 350,
                   padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFEEDDDD)),
-                  ),
+                  decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -349,29 +446,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     Container(
                       height: isManager ? 165 : 350,
                       padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFEEDDDD)),
-                      ),
+                      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Top Sellers', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           const SizedBox(height: 12),
-                          if (_topSellers.isEmpty)
-                            const Expanded(child: Center(child: Text('No data')))
-                          else
-                            ..._topSellers.map((e) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
-                                  Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11)),
-                                ],
-                              ),
-                            )),
+                          if (_topSellers.isEmpty) const Expanded(child: Center(child: Text('No data')))
+                          else ..._topSellers.map((e) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)), Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11))]))),
                         ],
                       ),
                     ),
@@ -380,30 +462,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       Container(
                         height: 165,
                         padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFEEDDDD)),
-                        ),
+                        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text('Team Performance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                             const SizedBox(height: 12),
-                            Expanded(
-                              child: ListView(
-                                children: _revenueByBarista.entries.map((e) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 8.0),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
-                                      Text('\$${e.value.toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11)),
-                                    ],
-                                  ),
-                                )).toList(),
-                              ),
-                            ),
+                            Expanded(child: ListView(children: _revenueByBarista.entries.map((e) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)), Text('\$${e.value.toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold, fontSize: 11))]))).toList())),
                           ],
                         ),
                       ),
@@ -425,86 +490,39 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   Container(
                     width: 250,
                     height: 40,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFEEDDDD)),
-                    ),
+                    decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFEEDDDD))),
                     child: TextField(
-                      onChanged: (val) {
-                        _searchQuery = val;
-                        _filterOrders();
-                      },
-                      decoration: const InputDecoration(
-                        hintText: 'Search order ID or item...',
-                        hintStyle: TextStyle(fontSize: 12),
-                        prefixIcon: Icon(Icons.search, size: 18),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 10),
-                      ),
+                      onChanged: (val) { _searchQuery = val; _filterOrders(); },
+                      decoration: const InputDecoration(hintText: 'Search order ID or item...', hintStyle: TextStyle(fontSize: 12), prefixIcon: Icon(Icons.search, size: 18), border: InputBorder.none, contentPadding: EdgeInsets.symmetric(vertical: 10)),
                     ),
                   ),
                   const SizedBox(width: 12),
-                  ActionChip(
-                    avatar: const Icon(Icons.date_range, size: 16),
-                    label: Text(_dateRange == null ? 'All Dates' : 'Filtered'),
-                    onPressed: () => _selectDateRange(context),
-                  ),
-                  if (_dateRange != null)
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                      onPressed: () {
-                        setState(() => _dateRange = null);
-                        _filterOrders();
-                      },
-                    ),
+                  ActionChip(avatar: const Icon(Icons.date_range, size: 16), label: Text(_dateRange == null ? 'All Dates' : 'Filtered'), onPressed: () => _selectDateRange(context)),
+                  if (_dateRange != null) IconButton(icon: const Icon(Icons.close, size: 18, color: Colors.red), onPressed: () { setState(() => _dateRange = null); _filterOrders(); }),
                 ],
               ),
             ],
           ),
           const SizedBox(height: 16),
 
-          if (_filteredOrders.isEmpty)
-            const Center(child: Padding(
-              padding: EdgeInsets.all(40.0),
-              child: Text('No orders found matching your filters'),
-            ))
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _filteredOrders.length,
-              itemBuilder: (context, index) {
-                final order = _filteredOrders[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 0,
-                  clipBehavior: Clip.antiAlias,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Color(0xFFEEDDDD)),
-                  ),
-                  child: ListTile(
-                    onTap: () => _showReceiptModal(context, order), // TAP TO VIEW RECEIPT
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    leading: CircleAvatar(
-                      backgroundColor: const Color(0xFFF0F7F4),
-                      child: Text('#${order.id}', style: const TextStyle(fontSize: 10, color: Color(0xFF006E3B), fontWeight: FontWeight.bold)),
-                    ),
-                    title: Text(order.itemsSummary, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(order.date, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-                        if (isManager)
-                          Text('Cashier: ${order.cashierName}', style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic)),
-                      ],
-                    ),
-                    trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                  ),
-                );
-              },
-            ),
+          if (_filteredOrders.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(40.0), child: Text('No orders found matching your filters')))
+          else ListView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: _filteredOrders.length, itemBuilder: (context, index) {
+            final order = _filteredOrders[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFEEDDDD))),
+              child: ListTile(
+                onTap: () => _showReceiptModal(context, order),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                leading: CircleAvatar(backgroundColor: const Color(0xFFF0F7F4), child: Text('#${order.id}', style: const TextStyle(fontSize: 10, color: Color(0xFF006E3B), fontWeight: FontWeight.bold))),
+                title: Text(order.itemsSummary, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(order.date, style: TextStyle(color: Colors.grey[500], fontSize: 12)), if (isManager) Text('Cashier: ${order.cashierName}', style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic))]),
+                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -514,29 +532,27 @@ class _OrdersScreenState extends State<OrdersScreen> {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFEEDDDD)),
-        ),
+        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, color: color),
-            ),
+            Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color)),
             const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                const SizedBox(height: 4),
-                Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              ],
-            ),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 14)), const SizedBox(height: 4), Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))]),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }

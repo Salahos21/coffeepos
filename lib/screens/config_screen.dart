@@ -37,17 +37,23 @@ class _ConfigScreenState extends State<ConfigScreen> {
   final TextEditingController _userPinController = TextEditingController();
   String _selectedRole = 'Barista';
 
+  // Settings State
+  final TextEditingController _taxRateController = TextEditingController();
+  bool _isBlindDropEnabled = true;
+
   @override
   void initState() {
     super.initState();
     _loadAllData();
   }
 
-  // Read: Fetch Categories, Products, and Users from SQLite
+  // Read: Fetch Categories, Products, Users, and Settings from SQLite
   Future<void> _loadAllData() async {
     final dbCategories = await DatabaseHelper.instance.getAllCategories();
     final dbProducts = await DatabaseHelper.instance.getAllProducts();
     final dbUsers = await DatabaseHelper.instance.getAllUsers();
+    final taxRate = await DatabaseHelper.instance.getTaxRate();
+    final blindDrop = await DatabaseHelper.instance.getBlindDropSetting();
 
     if (!mounted) return;
 
@@ -55,6 +61,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
       categories = dbCategories;
       products = dbProducts;
       users = dbUsers;
+      _taxRateController.text = taxRate.toString();
+      _isBlindDropEnabled = blindDrop;
       isLoading = false;
     });
   }
@@ -166,7 +174,6 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
   Future<void> _deleteUser(PosUser userToDelete) async {
     final currentUser = Provider.of<AuthProvider>(context, listen: false).currentUser;
-    // Prevent deleting your own account or any Manager (Admin) to avoid lockout
     if (userToDelete.id == currentUser?.id || userToDelete.role == 'Manager') {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,6 +189,30 @@ class _ConfigScreenState extends State<ConfigScreen> {
     _loadAllData();
   }
 
+  // --- SETTINGS LOGIC ---
+  Future<void> _saveTaxRate() async {
+    final rateText = _taxRateController.text.trim();
+    final rate = double.tryParse(rateText);
+    if (rate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid number for tax rate.')),
+      );
+      return;
+    }
+    await DatabaseHelper.instance.saveTaxRate(rate);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Tax settings saved successfully!'), backgroundColor: Color(0xFF006E3B)),
+    );
+  }
+
+  Future<void> _toggleBlindDrop(bool value) async {
+    setState(() {
+      _isBlindDropEnabled = value;
+    });
+    await DatabaseHelper.instance.saveBlindDropSetting(value);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -189,7 +220,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
     }
 
     return DefaultTabController(
-      length: 4, // Increased to 4 tabs
+      length: 5,
       child: Container(
         color: Theme.of(context).scaffoldBackgroundColor,
         padding: const EdgeInsets.all(32.0),
@@ -205,6 +236,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const TabBar(
+                isScrollable: true,
                 indicatorColor: Color(0xFF006E3B),
                 labelColor: Color(0xFF006E3B),
                 unselectedLabelColor: Colors.grey,
@@ -212,7 +244,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   Tab(icon: Icon(Icons.folder_outlined), text: 'Categories'),
                   Tab(icon: Icon(Icons.coffee_outlined), text: 'Products'),
                   Tab(icon: Icon(Icons.people_outline), text: 'Staff'),
-                  Tab(icon: Icon(Icons.palette_outlined), text: 'Theme'), // Added Theme tab
+                  Tab(icon: Icon(Icons.settings_outlined), text: 'Settings'),
+                  Tab(icon: Icon(Icons.palette_outlined), text: 'Theme'),
                 ],
               ),
             ),
@@ -224,7 +257,8 @@ class _ConfigScreenState extends State<ConfigScreen> {
                   _buildCategoryTab(),
                   _buildProductTab(),
                   _buildStaffTab(),
-                  _buildThemeTab(), // Added Theme tab view
+                  _buildSettingsTab(),
+                  _buildThemeTab(),
                 ],
               ),
             ),
@@ -461,6 +495,54 @@ class _ConfigScreenState extends State<ConfigScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Tax Configuration', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text('Set your regional sales tax rate.', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              SizedBox(
+                width: 200,
+                child: TextField(
+                  controller: _taxRateController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Tax Rate (%)', border: OutlineInputBorder(), suffixText: '%'),
+                ),
+              ),
+              const SizedBox(width: 16),
+              SizedBox(
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: _saveTaxRate,
+                  icon: const Icon(Icons.save, color: Colors.white),
+                  label: const Text('Save Rate', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(150, 56)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 48),
+          const Divider(),
+          const SizedBox(height: 24),
+          const Text('Security Settings', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          SwitchListTile(
+            title: const Text('Require Blind Drop for Baristas'),
+            subtitle: const Text('Baristas cannot see expected cash amounts when closing shifts.'),
+            value: _isBlindDropEnabled,
+            onChanged: _toggleBlindDrop,
+            activeThumbColor: const Color(0xFF006E3B),
+          ),
+        ],
+      ),
     );
   }
 

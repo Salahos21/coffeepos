@@ -4,21 +4,148 @@ import '../models/app_models.dart'; // To access cartState and CartItem
 import '../database_helper.dart';
 import '../providers/auth_provider.dart';
 
-class POSActiveOrderSidebar extends StatelessWidget {
+class POSActiveOrderSidebar extends StatefulWidget {
   const POSActiveOrderSidebar({super.key});
+
+  @override
+  State<POSActiveOrderSidebar> createState() => _POSActiveOrderSidebarState();
+}
+
+class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
+  @override
+  void initState() {
+    super.initState();
+    _loadTaxRate();
+  }
+
+  Future<void> _loadTaxRate() async {
+    final rate = await DatabaseHelper.instance.getTaxRate();
+    setState(() {
+      cartState.currentTaxRate = rate;
+    });
+  }
+
+  // --- NEW: CHECKOUT CONFIRMATION DIALOG ---
+  void _showCheckoutConfirmation(BuildContext context, String cashierName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)), // Paper look
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('CONFIRM ORDER', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.5)),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 10),
+              
+              // Receipt Items
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: cartState.items.length,
+                  itemBuilder: (context, index) {
+                    final item = cartState.items[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('${item.quantity}x ${item.product.name}'),
+                          Text('\$${(item.product.price * item.quantity).toStringAsFixed(2)}'),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              const Divider(thickness: 2),
+              _buildReceiptRow('Subtotal', '\$${cartState.subtotal.toStringAsFixed(2)}'),
+              _buildReceiptRow('Tax (${cartState.currentTaxRate}%)', '\$${cartState.taxAmount.toStringAsFixed(2)}'),
+              const SizedBox(height: 8),
+              _buildReceiptRow('TOTAL', '\$${cartState.finalTotal.toStringAsFixed(2)}', isBold: true, size: 22),
+              
+              const SizedBox(height: 30),
+              const Text('Please confirm payment from customer', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+        actionsPadding: const EdgeInsets.all(24),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF006E3B),
+              minimumSize: const Size(200, 56),
+            ),
+            onPressed: () async {
+              // 1. Create Summary
+              final summary = cartState.items.map((item) => '${item.quantity}x ${item.product.name}').join(', ');
+
+              // 2. Save Order
+              final newOrder = PosOrder(
+                date: DateTime.now().toString().substring(0, 16),
+                subtotal: cartState.subtotal,
+                taxAmount: cartState.taxAmount,
+                finalTotal: cartState.finalTotal,
+                itemsSummary: summary,
+                cashierName: cashierName,
+              );
+
+              await DatabaseHelper.instance.insertOrder(newOrder);
+              
+              // 3. Reset
+              cartState.clearCart();
+              if (context.mounted) {
+                Navigator.pop(context); // Close dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Payment Successful!'), backgroundColor: Color(0xFF006E3B)),
+                );
+              }
+            },
+            child: const Text('CONFIRM PAYMENT', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReceiptRow(String label, String value, {bool isBold = false, double size = 14}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: size)),
+          Text(value, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: size)),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final currentUser = authProvider.currentUser;
 
-    // 1. Wrap the entire sidebar in a ListenableBuilder
     return ListenableBuilder(
         listenable: cartState,
         builder: (context, child) {
           return Container(
             width: 380,
-            color: const Color(0xFFFDECE9),
+            color: Theme.of(context).brightness == Brightness.dark 
+                ? Theme.of(context).cardColor 
+                : const Color(0xFFFDECE9),
             padding: const EdgeInsets.all(24.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -58,7 +185,6 @@ class POSActiveOrderSidebar extends StatelessWidget {
                 // 2. Dynamic Order Items List
                 Expanded(
                   child: cartState.items.isEmpty
-                  // Show this if the cart is empty
                       ? Center(
                     child: Text(
                       'Cart is empty.\nTap a product to start.',
@@ -66,14 +192,13 @@ class POSActiveOrderSidebar extends StatelessWidget {
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                   )
-                  // Show the list of items if we have them
                       : ListView.builder(
                     itemCount: cartState.items.length,
                     itemBuilder: (context, index) {
                       final item = cartState.items[index];
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
-                        child: _buildCartItem(item), // Pass the whole CartItem object
+                        child: _buildCartItem(item),
                       );
                     },
                   ),
@@ -84,7 +209,7 @@ class POSActiveOrderSidebar extends StatelessWidget {
                   children: [
                     _buildSummaryRow('Subtotal', '\$${cartState.subtotal.toStringAsFixed(2)}'),
                     const SizedBox(height: 8),
-                    _buildSummaryRow('Tax (8%)', '\$${cartState.tax.toStringAsFixed(2)}'),
+                    _buildSummaryRow('Tax (${cartState.currentTaxRate}%)', '\$${cartState.taxAmount.toStringAsFixed(2)}'),
                     const SizedBox(height: 16),
 
                     Row(
@@ -92,14 +217,13 @@ class POSActiveOrderSidebar extends StatelessWidget {
                       children: [
                         const Text('Total Due', style: TextStyle(fontSize: 16)),
                         Text(
-                            '\$${cartState.total.toStringAsFixed(2)}',
+                            '\$${cartState.finalTotal.toStringAsFixed(2)}',
                             style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)
                         ),
                       ],
                     ),
                     const SizedBox(height: 24),
 
-                    // Note & Discount Buttons
                     Row(
                       children: [
                         Expanded(child: _buildSecondaryButton(Icons.note_add_outlined, 'Note')),
@@ -114,37 +238,7 @@ class POSActiveOrderSidebar extends StatelessWidget {
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton.icon(
-                        // Disable the button if the cart is empty!
-                        onPressed: cartState.items.isEmpty ? null : () async {
-
-                          // 1. Create a quick text summary of what they bought (e.g., "2x Latte, 1x Muffin")
-                          final summary = cartState.items.map((item) => '${item.quantity}x ${item.product.name}').join(', ');
-
-                          // 2. Build the Receipt object
-                          final newOrder = PosOrder(
-                            date: DateTime.now().toString().substring(0, 16), // Gives us "YYYY-MM-DD HH:MM"
-                            total: cartState.total,
-                            itemsSummary: summary,
-                            cashierName: currentUser?.name ?? 'Guest Cashier', // Use actual logged in user!
-                          );
-
-                          // 3. Save it to the SQLite hard drive!
-                          await DatabaseHelper.instance.insertOrder(newOrder);
-
-                          // 4. Ring them up!
-                          cartState.clearCart();
-
-                          // 5. Tell the barista it worked
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Order saved successfully!'),
-                                backgroundColor: Color(0xFF006E3B),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: cartState.items.isEmpty ? null : () => _showCheckoutConfirmation(context, currentUser?.name ?? 'Guest Cashier'),
                         icon: const Icon(Icons.check_circle_outline, color: Colors.white),
                         label: const Text('Checkout', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                         style: ElevatedButton.styleFrom(
@@ -163,12 +257,11 @@ class POSActiveOrderSidebar extends StatelessWidget {
     );
   }
 
-  // Helper updated to take a CartItem and calculate dynamic line totals
   Widget _buildCartItem(CartItem item) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -182,8 +275,6 @@ class POSActiveOrderSidebar extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(item.modifiers, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                 const SizedBox(height: 16),
-
-                // Quantity Controls (- 1 +) wired to the cartState
                 Row(
                   children: [
                     _buildQtyButton(Icons.remove, () => cartState.updateQuantity(item, -1)),
@@ -206,7 +297,6 @@ class POSActiveOrderSidebar extends StatelessWidget {
     );
   }
 
-  // Added onTap parameter so the buttons actually work
   Widget _buildQtyButton(IconData icon, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
@@ -214,10 +304,12 @@ class POSActiveOrderSidebar extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: const Color(0xFFFDECE9),
+          color: Theme.of(context).brightness == Brightness.dark 
+              ? Colors.white10 
+              : const Color(0xFFFDECE9),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 14, color: Colors.black87),
+        child: Icon(icon, size: 14),
       ),
     );
   }
@@ -236,15 +328,17 @@ class POSActiveOrderSidebar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3D8D3),
+        color: Theme.of(context).brightness == Brightness.dark 
+            ? Colors.white10 
+            : const Color(0xFFF3D8D3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 18, color: Colors.black87),
+          Icon(icon, size: 18),
           const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

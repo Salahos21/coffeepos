@@ -17,7 +17,10 @@ void main() async {
   
   // Pre-load the theme settings from SharedPreferences
   final themeProvider = ThemeProvider();
-  await themeProvider.loadTheme();
+  
+  // Start loading but don't block the app from starting
+  // This prevents the app from hanging if the platform channel is slow
+  themeProvider.loadTheme();
 
   runApp(
     MultiProvider(

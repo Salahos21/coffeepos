@@ -118,11 +118,13 @@ class CartItem {
 
 class CartState extends ChangeNotifier {
   final List<CartItem> _items = [];
+  double currentTaxRate = 0.0;
 
   List<CartItem> get items => _items;
+  
   double get subtotal => _items.fold(0, (sum, item) => sum + (item.product.price * item.quantity));
-  double get tax => subtotal * 0.08;
-  double get total => subtotal + tax;
+  double get taxAmount => subtotal * (currentTaxRate / 100);
+  double get finalTotal => subtotal + taxAmount;
 
   void addItem(Product product) {
     final existingIndex = _items.indexWhere((item) => item.product.name == product.name);
@@ -152,25 +154,31 @@ class CartState extends ChangeNotifier {
 class PosOrder {
   final int? id;
   final String date;
-  final double total;
+  final double subtotal;
+  final double taxAmount;
+  final double finalTotal;
   final String itemsSummary;
-  final String cashierName; // Added field
+  final String cashierName;
 
   PosOrder({
     this.id,
     required this.date,
-    required this.total,
+    required this.subtotal,
+    required this.taxAmount,
+    required this.finalTotal,
     required this.itemsSummary,
-    required this.cashierName, // Added to constructor
+    required this.cashierName,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'date': date,
-      'total': total,
+      'subtotal': subtotal,
+      'taxAmount': taxAmount,
+      'finalTotal': finalTotal,
       'itemsSummary': itemsSummary,
-      'cashierName': cashierName, // Added to toMap
+      'cashierName': cashierName,
     };
   }
 
@@ -178,12 +186,61 @@ class PosOrder {
     return PosOrder(
       id: map['id'],
       date: map['date'],
-      total: map['total'],
+      subtotal: map['subtotal'] ?? 0.0,
+      taxAmount: map['taxAmount'] ?? 0.0,
+      finalTotal: map['finalTotal'] ?? 0.0,
       itemsSummary: map['itemsSummary'],
-      cashierName: map['cashierName'] ?? 'Unknown', // Added to fromMap
+      cashierName: map['cashierName'] ?? 'Unknown',
     );
   }
 }
 
-// Our global state instance
+class ShiftReport {
+  final int? id;
+  final String date;
+  final String employeeName;
+  final double startingCash;
+  final double totalSales;
+  final double expectedCash;
+  final double actualCash;
+  final double variance;
+
+  ShiftReport({
+    this.id,
+    required this.date,
+    required this.employeeName,
+    required this.startingCash,
+    required this.totalSales,
+    required this.expectedCash,
+    required this.actualCash,
+    required this.variance,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'date': date,
+      'employeeName': employeeName,
+      'startingCash': startingCash,
+      'totalSales': totalSales,
+      'expectedCash': expectedCash,
+      'actualCash': actualCash,
+      'variance': variance,
+    };
+  }
+
+  factory ShiftReport.fromMap(Map<String, dynamic> map) {
+    return ShiftReport(
+      id: map['id'],
+      date: map['date'],
+      employeeName: map['employeeName'],
+      startingCash: map['startingCash'],
+      totalSales: map['totalSales'],
+      expectedCash: map['expectedCash'],
+      actualCash: map['actualCash'],
+      variance: map['variance'],
+    );
+  }
+}
+
 final cartState = CartState();
