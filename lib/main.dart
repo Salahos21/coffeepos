@@ -3,29 +3,25 @@ import 'package:provider/provider.dart';
 
 // Imports for our clean components and screens
 import 'components/side_nav.dart';
-import 'components/center_area.dart';
 import 'components/active_order_sidebar.dart';
 import 'screens/config_screen.dart';
 import 'screens/orders_screen.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'models/app_models.dart';
 
 void main() async {
-  // Ensure Flutter framework is ready
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Pre-load the theme settings from SharedPreferences
   final themeProvider = ThemeProvider();
-  
-  // Start loading but don't block the app from starting
-  // This prevents the app from hanging if the platform channel is slow
   themeProvider.loadTheme();
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: themeProvider),
+        ChangeNotifierProvider.value(value: cartState), // Providing existing global cartState
         ChangeNotifierProvider(create: (_) => AuthProvider()),
       ],
       child: const TactilePOSApp(),
@@ -59,13 +55,7 @@ class _POSMainLayoutState extends State<POSMainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isPortrait = screenWidth < 950;
-
     return Scaffold(
-      endDrawer: isPortrait ? const Drawer(
-        child: POSActiveOrderSidebar(),
-      ) : null,
       body: Row(
         children: [
           // 1. LEFT NAVIGATION PANEL
@@ -80,10 +70,10 @@ class _POSMainLayoutState extends State<POSMainLayout> {
 
           const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
 
-          // 2. CENTER CONTENT AREA
+          // 2. CONTENT AREA
           Expanded(
             child: _selectedIndex == 0
-                ? const POSCenterArea()
+                ? const POSActiveOrderSidebar() // Handles Register + Cart responsively
                 : _selectedIndex == 1
                 ? const OrdersScreen()
                 : _selectedIndex == 2
@@ -95,10 +85,6 @@ class _POSMainLayoutState extends State<POSMainLayout> {
               ),
             ),
           ),
-
-          // 3. RIGHT ACTIVE ORDER SIDEBAR
-          if (!isPortrait && _selectedIndex == 0)
-            const POSActiveOrderSidebar(),
         ],
       ),
     );

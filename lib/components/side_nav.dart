@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../screens/login_screen.dart';
 import '../providers/auth_provider.dart';
+import '../screens/settings_screen.dart'; // Add this import
 
 class POSSideNav extends StatelessWidget {
   final int selectedIndex;
@@ -49,6 +50,18 @@ class POSSideNav extends StatelessWidget {
           // User Profile Section
           Column(
             children: [
+              if (isManager) // Add Settings button for Managers
+                IconButton(
+                  icon: const Icon(Icons.settings, color: Colors.grey, size: 24),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                    );
+                  },
+                  tooltip: 'Settings',
+                ),
+              const SizedBox(height: 12),
               CircleAvatar(
                 backgroundColor: const Color(0xFF006E3B).withValues(alpha: 0.1),
                 child: Text(

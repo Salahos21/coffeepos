@@ -159,6 +159,7 @@ class PosOrder {
   final double finalTotal;
   final String itemsSummary;
   final String cashierName;
+  final bool isVoid; // Added field
 
   PosOrder({
     this.id,
@@ -168,6 +169,7 @@ class PosOrder {
     required this.finalTotal,
     required this.itemsSummary,
     required this.cashierName,
+    this.isVoid = false, // Default to false
   });
 
   Map<String, dynamic> toMap() {
@@ -179,6 +181,7 @@ class PosOrder {
       'finalTotal': finalTotal,
       'itemsSummary': itemsSummary,
       'cashierName': cashierName,
+      'isVoid': isVoid ? 1 : 0, // Save as integer
     };
   }
 
@@ -191,6 +194,7 @@ class PosOrder {
       finalTotal: map['finalTotal'] ?? 0.0,
       itemsSummary: map['itemsSummary'],
       cashierName: map['cashierName'] ?? 'Unknown',
+      isVoid: map['isVoid'] == 1, // Read as boolean
     );
   }
 }
