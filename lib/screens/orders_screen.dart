@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../database_helper.dart';
 import '../models/app_models.dart';
 import '../providers/auth_provider.dart';
+import '../providers/language_provider.dart';
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +24,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
   bool _isLoading = true;
 
   String _searchQuery = '';
-  // This starts the search 90 days ago, which catches all your injected data
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 90));
   DateTime _endDate = DateTime.now();
 
@@ -40,7 +40,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
     _fetchAndCalculateData();
   }
 
+  // CORRECTION: Refresh data whenever the tab is selected/re-focused
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _fetchAndCalculateData();
+  }
+
   Future<void> _fetchAndCalculateData() async {
+    // Safety check to ensure widget is still active
+    if (!mounted) return;
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final currentUser = authProvider.currentUser;
     final isManager = currentUser?.role == 'Manager';
@@ -52,7 +62,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       orders = await DatabaseHelper.instance.getOrdersByCashier(currentUser?.name ?? '');
     }
 
-    final todayStr = DateTime.now().toString().substring(0, 10);
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
     double todayTotal = 0;
     double rangeTotal = 0;
     Map<String, double> dailyRevenue = {};
@@ -82,24 +92,26 @@ class _OrdersScreenState extends State<OrdersScreen> {
     List<String> days = [];
     for (int i = 6; i >= 0; i--) {
       final day = _endDate.subtract(Duration(days: i));
-      final dayStr = day.toString().substring(0, 10);
+      final dayStr = DateFormat('yyyy-MM-dd').format(day);
       days.add(dayStr.substring(5));
       barGroups.add(BarChartGroupData(x: 6 - i, barRods: [
         BarChartRodData(toY: dailyRevenue[dayStr] ?? 0, color: const Color(0xFF006E3B), width: 16)
       ]));
     }
 
-    setState(() {
-      _orders = orders;
-      _filteredOrders = orders;
-      _todayRevenue = todayTotal;
-      _rangeRevenue = rangeTotal;
-      _chartData = barGroups;
-      _recentDays = days;
-      _topSellers = (itemCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).take(3).toList();
-      _revenueByBarista = Map.fromEntries(baristaRevenue.entries.toList()..sort((a, b) => b.value.compareTo(a.value)));
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _orders = orders;
+        _filteredOrders = orders;
+        _todayRevenue = todayTotal;
+        _rangeRevenue = rangeTotal;
+        _chartData = barGroups;
+        _recentDays = days;
+        _topSellers = (itemCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).take(3).toList();
+        _revenueByBarista = Map.fromEntries(baristaRevenue.entries.toList()..sort((a, b) => b.value.compareTo(a.value)));
+        _isLoading = false;
+      });
+    }
   }
 
   void _filterOrders(String query) {
@@ -112,71 +124,93 @@ class _OrdersScreenState extends State<OrdersScreen> {
     });
   }
 
+  void _setQuickRange(int days) {
+    setState(() {
+      _endDate = DateTime.now();
+      _startDate = DateTime.now().subtract(Duration(days: days));
+      _isLoading = true;
+    });
+    _fetchAndCalculateData();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF006E3B)));
 
     final isManager = Provider.of<AuthProvider>(context).currentUser?.role == 'Manager';
+    final lang = Provider.of<LanguageProvider>(context);
 
     return CustomScrollView(
       slivers: [
-        // 1. The Pinned Header
         SliverAppBar(
           floating: true,
           pinned: true,
           expandedHeight: 60,
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          surfaceTintColor: Colors.transparent, // Prevents weird color shifts
+          surfaceTintColor: Colors.transparent,
           title: Text(
-            isManager ? 'Store Analytics' : 'My Performance',
+            isManager ? lang.t('order_history') : lang.t('orders'),
             style: const TextStyle(color: Colors.black, fontSize: 22, fontWeight: FontWeight.bold),
           ),
           actions: [
-            // Moved the Shift button here to keep the top bar functional
             Padding(
-              padding: const EdgeInsets.only(right: 16.0),
-              child: ElevatedButton.icon(
-                onPressed: () => _showCloseShiftDialog(context),
-                icon: const Icon(Icons.lock_clock, size: 18),
-                label: const Text('Close Shift'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade800,
-                  foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: ElevatedButton.icon(
+                  onPressed: () => _showCloseShiftDialog(context),
+                  icon: const Icon(Icons.lock_clock, size: 16),
+                  label: Text(
+                    lang.t('close_shift'),
+                    style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade800,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                 ),
               ),
             ),
           ],
         ),
 
-        // 2. The Filter Bar (Fixed Clickability)
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (isManager)
-                  OutlinedButton.icon(
-                    onPressed: () => _selectDateRange(context),
-                    icon: const Icon(Icons.calendar_month, color: Color(0xFF006E3B)),
-                    label: Text(
-                      "Range: ${DateFormat('MMM d').format(_startDate)} - ${DateFormat('MMM d').format(_endDate)}",
-                      style: const TextStyle(color: Colors.black87),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  if (isManager) ...[
+                    _buildFilterChip("Today", 0),
+                    const SizedBox(width: 8),
+                    _buildFilterChip("30 Days", 30),
+                    const SizedBox(width: 8),
+                    _buildFilterChip("1 Year", 365),
+                    const SizedBox(width: 16),
+                    const VerticalDivider(),
+                    OutlinedButton.icon(
+                      onPressed: () => _selectDateRange(context),
+                      icon: const Icon(Icons.calendar_month, size: 18, color: Color(0xFF006E3B)),
+                      label: Text(
+                        "${DateFormat('MMM d').format(_startDate)} - ${DateFormat('MMM d').format(_endDate)}",
+                        style: const TextStyle(color: Colors.black87, fontSize: 13),
+                      ),
                     ),
-                    style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey.shade300)),
-                  ),
-                if (isManager)
-                  IconButton(
-                    onPressed: _shareReport,
-                    icon: const Icon(Icons.share, color: Color(0xFF006E3B)),
-                    tooltip: 'Share Report',
-                  ),
-              ],
+                  ],
+                  if (isManager)
+                    IconButton(
+                      onPressed: _shareReport,
+                      icon: const Icon(Icons.share, color: Color(0xFF006E3B)),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
 
-        // 3. The Analytics Dashboard Section
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 32.0),
           sliver: SliverToBoxAdapter(
@@ -186,11 +220,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 if (isManager) ...[
                   const SizedBox(height: 16),
                   Row(children: [
-                    _buildSummaryCard('Today', '\$${_todayRevenue.toStringAsFixed(2)}', Icons.today, const Color(0xFF006E3B)),
+                    _buildSummaryCard(lang.t('today_revenue'), '\$${_todayRevenue.toStringAsFixed(2)}', Icons.today, const Color(0xFF006E3B)),
                     const SizedBox(width: 20),
-                    _buildSummaryCard('Range Total', '\$${_rangeRevenue.toStringAsFixed(2)}', Icons.account_balance_wallet, Colors.blueGrey),
+                    _buildSummaryCard(lang.t('range_total'), '\$${_rangeRevenue.toStringAsFixed(2)}', Icons.account_balance_wallet, Colors.blueGrey),
                     const SizedBox(width: 20),
-                    _buildSummaryCard('Avg Sale', '\$${(_orders.isEmpty ? 0 : _rangeRevenue / _orders.length).toStringAsFixed(2)}', Icons.trending_up, Colors.indigo),
+                    _buildSummaryCard(lang.t('avg_sale'), '\$${(_orders.isEmpty ? 0 : _rangeRevenue / _orders.length).toStringAsFixed(2)}', Icons.trending_up, Colors.indigo),
                   ]),
                   const SizedBox(height: 32),
                   _buildChartsRow(),
@@ -203,7 +237,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         ),
 
-        // 4. The Lazy-Loading List
         _filteredOrders.isEmpty
             ? const SliverFillRemaining(child: Center(child: Text('No orders found')))
             : SliverPadding(
@@ -220,6 +253,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
     );
   }
 
+  Widget _buildFilterChip(String label, int days) {
+    final bool isSelected = DateTime.now().difference(_startDate).inDays == days;
+    return ActionChip(
+      label: Text(label),
+      backgroundColor: isSelected ? const Color(0xFF006E3B) : Colors.white,
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+      onPressed: () => _setQuickRange(days),
+    );
+  }
 
   Widget _buildChartsRow() {
     return Row(
@@ -251,12 +293,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Widget _buildHistoryHeader() {
+    final lang = Provider.of<LanguageProvider>(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Order History',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        Text(
+          lang.t('order_history'),
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         Container(
           width: 300,
@@ -267,18 +310,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
             border: Border.all(color: const Color(0xFFEEDDDD)),
           ),
           child: TextField(
-            // 1. Create a controller if you want to clear the text physically
-            // For now, we'll just use the value logic:
             onChanged: (value) => _filterOrders(value),
             decoration: InputDecoration(
-              hintText: 'Search ID or items...',
+              hintText: lang.t('search_hint'),
               hintStyle: const TextStyle(fontSize: 12),
               prefixIcon: const Icon(Icons.search, size: 20),
-              // 2. THIS USES THE FIELD: Show 'X' only if user has typed something
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
                 icon: const Icon(Icons.clear, size: 18),
-                onPressed: () => _filterOrders(''), // Clears the search
+                onPressed: () {
+                  _filterOrders('');
+                  _fetchAndCalculateData();
+                },
               )
                   : null,
               border: InputBorder.none,
@@ -336,24 +379,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<void> _selectDateRange(BuildContext context) async {
     final picked = await showDateRangePicker(
       context: context,
-      // 1. Ensure the 'fence' is far back (2020 is fine)
       firstDate: DateTime(2020),
-      // 2. Ensure the 'end fence' is exactly right now
       lastDate: DateTime.now(),
-      // 3. This is the crucial part: it sets the initial "highlight"
       initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
-      // 4. Force the calendar to show the full month grid clearly
       initialEntryMode: DatePickerEntryMode.calendarOnly,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF006E3B), // Your Starbucks Green
+              primary: Color(0xFF006E3B),
               onPrimary: Colors.white,
               onSurface: Colors.black,
             ),
-            // Ensures the dialog doesn't get clipped on tablets
-            dialogTheme: const DialogThemeData( // <--- Add "Data" to the end
+            dialogTheme: const DialogThemeData(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
             ),
           ),
@@ -363,9 +401,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     );
 
     if (picked != null) {
-      // 5. Check mounted for safety (the 'async gap' fix)
       if (!mounted) return;
-
       setState(() {
         _startDate = picked.start;
         _endDate = picked.end;
@@ -380,7 +416,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _confirmVoid(BuildContext context, PosOrder order) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text('Void Order'), content: Text('Void Order #${order.id}?'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')), TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('VOID', style: TextStyle(color: Colors.red)))]));
+    final lang = Provider.of<LanguageProvider>(context, listen: false);
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+            title: Text(lang.t('void_order')),
+            content: Text('${lang.t('void_order')} #${order.id}?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(lang.t('cancel'))),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: Text(lang.t('void_order'), style: const TextStyle(color: Colors.red)))
+            ]
+        )
+    );
     if (confirmed == true) { await DatabaseHelper.instance.voidOrder(order.id!); _fetchAndCalculateData(); }
   }
 
@@ -388,9 +435,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.currentUser!;
     final isBlindDrop = await DatabaseHelper.instance.getBlindDropSetting();
+    final lang = Provider.of<LanguageProvider>(context, listen: false);
 
     final now = DateTime.now();
-    final todayStr = now.toString().substring(0, 10);
+    final todayStr = DateFormat('yyyy-MM-dd').format(now);
     double todaySales = _orders
         .where((o) => o.date.startsWith(todayStr) && !o.isVoid)
         .fold(0, (sum, o) => sum + o.finalTotal);
@@ -409,7 +457,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             bool hideMath = (user.role == 'Barista' && isBlindDrop);
 
             return AlertDialog(
-              title: const Text('Close Shift Report'),
+              title: Text(lang.t('close_shift')),
               content: SizedBox(
                 width: 400,
                 child: Column(
@@ -421,7 +469,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     const SizedBox(height: 24),
                     if (!hideMath) ...[
                       const Divider(),
-                      _buildRow('Today Sales', '\$${todaySales.toStringAsFixed(2)}'),
+                      _buildRow(lang.t('today_revenue'), '\$${todaySales.toStringAsFixed(2)}'),
                       _buildRow('Expected', '\$${expectedCash.toStringAsFixed(2)}'),
                       _buildRow('Variance', '\$${variance.toStringAsFixed(2)}', isBold: true, color: variance >= 0 ? Colors.green : Colors.red),
                     ] else const Text('Blind Drop Enabled: Math is hidden until submission.', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey)),
@@ -429,7 +477,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+                TextButton(onPressed: () => Navigator.pop(context), child: Text(lang.t('cancel'))),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B)),
                   onPressed: () async {
@@ -446,7 +494,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     _sendShiftEmailReport(report);
                     Navigator.pop(context);
                   },
-                  child: const Text('SUBMIT REPORT', style: TextStyle(color: Colors.white)),
+                  child: Text(lang.t('confirm_payment'), style: const TextStyle(color: Colors.white)),
                 ),
               ],
             );

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/language_provider.dart';
 import '../screens/login_screen.dart';
 import '../providers/auth_provider.dart';
-import '../screens/settings_screen.dart'; // Add this import
+import '../screens/settings_screen.dart';
 
 class POSSideNav extends StatelessWidget {
   final int selectedIndex;
@@ -19,9 +20,10 @@ class POSSideNav extends StatelessWidget {
     final authProvider = Provider.of<AuthProvider>(context);
     final currentUser = authProvider.currentUser;
     final isManager = currentUser?.role == 'Manager';
+    final lang = Provider.of<LanguageProvider>(context);
 
     return Container(
-      width: 90,
+      width: 100, // Increased slightly for longer localized words
       color: Colors.white,
       child: Column(
         children: [
@@ -39,18 +41,18 @@ class POSSideNav extends StatelessWidget {
           const SizedBox(height: 48),
 
           // Nav Items
-          _buildNavItem(Icons.point_of_sale, 'Register', 0),
-          _buildNavItem(Icons.receipt_long, 'Orders', 1),
-          
+          _buildNavItem(Icons.point_of_sale, lang.t('register'), 0, isSelected: selectedIndex == 0),
+          _buildNavItem(Icons.receipt_long, lang.t('orders'), 1, isSelected: selectedIndex == 1),
+
           if (isManager)
-            _buildNavItem(Icons.inventory_2_outlined, 'Config', 2),
+            _buildNavItem(Icons.inventory_2_outlined, lang.t('config'), 2, isSelected: selectedIndex == 2),
 
           const Spacer(),
 
           // User Profile Section
           Column(
             children: [
-              if (isManager) // Add Settings button for Managers
+              if (isManager)
                 IconButton(
                   icon: const Icon(Icons.settings, color: Colors.grey, size: 24),
                   onPressed: () {
@@ -59,7 +61,7 @@ class POSSideNav extends StatelessWidget {
                       MaterialPageRoute(builder: (context) => const SettingsScreen()),
                     );
                   },
-                  tooltip: 'Settings',
+                  tooltip: lang.t('settings'), // Translated Tooltip
                 ),
               const SizedBox(height: 12),
               CircleAvatar(
@@ -75,8 +77,9 @@ class POSSideNav extends StatelessWidget {
                 style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
+              // Translated Role (Manager/Barista)
               Text(
-                currentUser?.role ?? '',
+                currentUser?.role == 'Manager' ? lang.t('manager_role') : lang.t('barista_role'),
                 style: const TextStyle(fontSize: 9, color: Colors.grey),
               ),
               const SizedBox(height: 4),
@@ -87,10 +90,10 @@ class POSSideNav extends StatelessWidget {
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
+                        (route) => false,
                   );
                 },
-                tooltip: 'Log off / Switch User',
+                tooltip: lang.t('logout'), // Translated Tooltip
               ),
             ],
           ),
@@ -100,15 +103,14 @@ class POSSideNav extends StatelessWidget {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = selectedIndex == index;
+  Widget _buildNavItem(IconData icon, String label, int index, {required bool isSelected}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
       child: InkWell(
         onTap: () => onItemSelected(index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          width: 64,
+          width: 72, // Wider hit area
           height: 64,
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF006E3B) : Colors.transparent,
@@ -123,12 +125,17 @@ class POSSideNav extends StatelessWidget {
                 size: 24,
               ),
               const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black45,
-                  fontSize: 10,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.black45,
+                    fontSize: 10,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis, // Safety for long words
                 ),
               ),
             ],

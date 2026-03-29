@@ -5,7 +5,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:file_picker/file_picker.dart';
-import '../database_helper.dart'; // Verified path for lib/database_helper.dart
+import 'package:provider/provider.dart';
+import '../database_helper.dart';
+import '../providers/language_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -60,7 +62,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await Share.shareXFiles(
           [XFile(dbPath)],
           subject: 'Tactile POS Database Backup',
-          text: 'Here is the database backup for ${_businessNameController.text}.',
         );
       } else {
         throw Exception("Database file not found.");
@@ -75,9 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _importDatabase() async {
     try {
-      // 1. Close connection BEFORE picking file to release the lock
       await DatabaseHelper.instance.close();
-
       FilePickerResult? result = await FilePicker.platform.pickFiles();
 
       if (result != null && result.files.single.path != null) {
@@ -89,7 +88,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (!confirm) return;
 
         await pickedFile.copy(dbPath);
-
         if (!mounted) return;
 
         showDialog(
@@ -97,12 +95,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           barrierDismissible: false,
           builder: (context) => AlertDialog(
             title: const Text('Import Successful'),
-            content: const Text('Database restored. The app must restart to load the new data.'),
+            content: const Text('Database restored. Restart required.'),
             actions: [
-              ElevatedButton(
-                onPressed: () => exit(0),
-                child: const Text('RESTART NOW'),
-              ),
+              ElevatedButton(onPressed: () => exit(0), child: const Text('RESTART NOW')),
             ],
           ),
         );
@@ -120,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Overwrite Database?'),
-        content: const Text('This will replace all current data with the backup file. This cannot be undone.'),
+        content: const Text('This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
           ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('IMPORT')),
@@ -129,45 +124,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ) ?? false;
   }
 
+  Widget _buildLanguageButton(BuildContext context, String label, String code) {
+    final langProvider = Provider.of<LanguageProvider>(context);
+    bool isSelected = langProvider.currentLocale.languageCode == code;
+
+    return Expanded(
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isSelected ? const Color(0xFF006E3B) : Colors.grey[200],
+          foregroundColor: isSelected ? Colors.white : Colors.black87,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        onPressed: () => langProvider.setLanguage(code),
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final lang = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(lang.t('settings'))),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Business & Reporting', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF006E3B))),
+            // --- LANGUAGE SECTION ---
+            Text(lang.currentLocale.languageCode == 'ar' ? 'لغة التطبيق' : 'App Language',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF006E3B))),
             const SizedBox(height: 16),
-            TextField(
-              controller: _businessNameController,
-              decoration: const InputDecoration(labelText: 'Business Name', prefixIcon: Icon(Icons.store), border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Reporting Gmail Address', prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Gmail App Password',
-                prefixIcon: Icon(Icons.lock),
-                helperText: '16-character code from Google Account settings.',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _saveSettings,
-              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: const Color(0xFF006E3B)),
-              child: const Text('SAVE SETTINGS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                _buildLanguageButton(context, 'English', 'en'),
+                const SizedBox(width: 8),
+                _buildLanguageButton(context, 'Français', 'fr'),
+                const SizedBox(width: 8),
+                _buildLanguageButton(context, 'العربية', 'ar'),
+              ],
             ),
             const SizedBox(height: 40),
             const Divider(),
+
+            // --- BUSINESS & REPORTING SECTION ---
+            const SizedBox(height: 24),
+            Text(lang.t('business_reporting'),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF006E3B))),
+            const SizedBox(height: 16),
+
+            // Business Name
+            TextField(
+              controller: _businessNameController,
+              decoration: InputDecoration(
+                  labelText: lang.currentLocale.languageCode == 'ar' ? 'اسم العمل' : 'Business Name',
+                  prefixIcon: const Icon(Icons.store),
+                  border: const OutlineInputBorder()
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Email Field (Restored)
+            TextField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                  labelText: lang.t('email'),
+                  prefixIcon: const Icon(Icons.email),
+                  border: const OutlineInputBorder()
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Password Field (Restored)
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: InputDecoration(
+                  labelText: lang.t('password'),
+                  helperText: lang.currentLocale.languageCode == 'ar'
+                      ? 'رمز مكون من 16 حرفًا من إعدادات جوجل.'
+                      : '16-character code from Google settings.',
+                  prefixIcon: const Icon(Icons.lock),
+                  border: const OutlineInputBorder()
+              ),
+            ),
+
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _saveSettings,
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: const Color(0xFF006E3B)),
+              child: Text(lang.t('save_settings'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+
+            const SizedBox(height: 40),
+            const Divider(),
+
+            // --- DATA & BACKUPS ---
             const SizedBox(height: 24),
             const Text('Data & Backups', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
@@ -178,7 +232,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onPressed: _exportDatabase,
                     icon: const Icon(Icons.cloud_upload),
                     label: const Text('EXPORT'),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -187,18 +240,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onPressed: _importDatabase,
                     icon: const Icon(Icons.cloud_download),
                     label: const Text('IMPORT'),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   ),
                 ),
               ],
-            ),
-            const Padding(
-              padding: EdgeInsets.only(top: 12.0),
-              child: Text(
-                'Tip: Export your database weekly and save it to your Google Drive for safety.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
             ),
 
             // --- DEBUG SECTION ---
@@ -211,12 +255,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await DatabaseHelper.instance.seedHistoricalData();
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('90 Days of Fake Data Injected!'), backgroundColor: Colors.redAccent),
+                  const SnackBar(content: Text('90 Days Data Injected!'), backgroundColor: Colors.redAccent),
                 );
               },
               icon: const Icon(Icons.bug_report, color: Colors.white),
-              label: const Text('INJECT 3 MONTHS OF FAKE ORDERS', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.withOpacity(0.8)),
+              label: const Text('INJECT FAKE DATA', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent.withValues(alpha: 0.8),
+              ),
             ),
           ],
         ),

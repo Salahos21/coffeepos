@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Imports for our clean components and screens
 import 'components/side_nav.dart';
@@ -9,19 +10,19 @@ import 'screens/orders_screen.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'providers/language_provider.dart';
 import 'models/app_models.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  final themeProvider = ThemeProvider();
-  themeProvider.loadTheme();
 
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: themeProvider),
-        ChangeNotifierProvider.value(value: cartState), // Providing existing global cartState
+        // Load Theme and Language immediately on startup
+        ChangeNotifierProvider(create: (_) => ThemeProvider()..loadTheme()),
+        ChangeNotifierProvider(create: (_) => LanguageProvider()),
+        ChangeNotifierProvider.value(value: cartState),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
       ],
       child: const TactilePOSApp(),
@@ -34,11 +35,32 @@ class TactilePOSApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Tactile POS',
-      theme: context.watch<ThemeProvider>().themeData,
-      home: const LoginScreen(),
+    // We use Consumer here so the entire app rebuilds (and flips RTL)
+    // the moment setLanguage() is called in Settings.
+    return Consumer<LanguageProvider>(
+      builder: (context, lang, child) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Tactile POS',
+          theme: context.watch<ThemeProvider>().themeData,
+
+          // Localization Settings
+          locale: lang.currentLocale,
+          supportedLocales: const [
+            Locale('en'),
+            Locale('fr'),
+            Locale('ar'),
+          ],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+
+          // Entry point is Login
+          home: const LoginScreen(),
+        );
+      },
     );
   }
 }
@@ -55,10 +77,12 @@ class _POSMainLayoutState extends State<POSMainLayout> {
 
   @override
   Widget build(BuildContext context) {
+    // In Arabic mode, the Row children [SideNav, Divider, Expanded]
+    // will reverse order automatically.
     return Scaffold(
       body: Row(
         children: [
-          // 1. LEFT NAVIGATION PANEL
+          // 1. NAVIGATION PANEL (Will be Right-aligned in Arabic)
           POSSideNav(
             selectedIndex: _selectedIndex,
             onItemSelected: (index) {
@@ -72,17 +96,13 @@ class _POSMainLayoutState extends State<POSMainLayout> {
 
           // 2. CONTENT AREA
           Expanded(
-            child: _selectedIndex == 0
-                ? const POSActiveOrderSidebar() // Handles Register + Cart responsively
-                : _selectedIndex == 1
-                ? const OrdersScreen()
-                : _selectedIndex == 2
-                ? const ConfigScreen()
-                : const Center(
-              child: Text(
-                'Unknown Screen',
-                style: TextStyle(fontSize: 24, color: Colors.grey),
-              ),
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: const [
+                POSActiveOrderSidebar(), // Register + Cart
+                OrdersScreen(),          // Analytics/History
+                ConfigScreen(),          // Manager Settings
+              ],
             ),
           ),
         ],

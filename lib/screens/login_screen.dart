@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../database_helper.dart';
 import '../main.dart';
 import '../providers/auth_provider.dart';
+import '../providers/language_provider.dart'; // Added
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -35,11 +36,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _verifyPin() async {
+    final lang = Provider.of<LanguageProvider>(context, listen: false);
     final user = await DatabaseHelper.instance.getUserByPin(_enteredPin);
 
     if (user != null) {
       if (mounted) {
-        // Correct way to set the user using Provider
         context.read<AuthProvider>().login(user);
         Navigator.pushReplacement(
           context,
@@ -52,8 +53,9 @@ class _LoginScreenState extends State<LoginScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid PIN'),
+          SnackBar(
+            // Uses translated error message
+            content: Text(lang.t('invalid_pin')),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -64,6 +66,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lang = Provider.of<LanguageProvider>(context);
+
     return Scaffold(
       backgroundColor: const Color(0xFFFCF8F8),
       body: Center(
@@ -88,13 +92,13 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const Icon(Icons.lock_outline, size: 64, color: Color(0xFF006E3B)),
                 const SizedBox(height: 16),
-                const Text(
-                  'Enter your PIN',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                Text(
+                  lang.t('enter_pin'), // Translated Title
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 24),
-                
-                // PIN Indicators
+
+                // PIN Indicators (Direction-agnostic Row)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(4, (index) {
@@ -166,6 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
           color: Colors.grey[200],
           borderRadius: BorderRadius.circular(16),
         ),
+        // Use Icons.adaptive.arrow_back if you want the icon to flip in RTL
         child: const Icon(Icons.backspace_outlined, size: 24),
       ),
     );

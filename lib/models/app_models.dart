@@ -121,7 +121,7 @@ class CartState extends ChangeNotifier {
   double currentTaxRate = 0.0;
 
   List<CartItem> get items => _items;
-  
+
   double get subtotal => _items.fold(0, (sum, item) => sum + (item.product.price * item.quantity));
   double get taxAmount => subtotal * (currentTaxRate / 100);
   double get finalTotal => subtotal + taxAmount;
@@ -134,6 +134,7 @@ class CartState extends ChangeNotifier {
     } else {
       _items.add(CartItem(product: product));
     }
+    // Forces UI listeners to rebuild
     notifyListeners();
   }
 
@@ -159,7 +160,7 @@ class PosOrder {
   final double finalTotal;
   final String itemsSummary;
   final String cashierName;
-  final bool isVoid; // Added field
+  final bool isVoid;
 
   PosOrder({
     this.id,
@@ -169,7 +170,7 @@ class PosOrder {
     required this.finalTotal,
     required this.itemsSummary,
     required this.cashierName,
-    this.isVoid = false, // Default to false
+    this.isVoid = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -181,7 +182,7 @@ class PosOrder {
       'finalTotal': finalTotal,
       'itemsSummary': itemsSummary,
       'cashierName': cashierName,
-      'isVoid': isVoid ? 1 : 0, // Save as integer
+      'isVoid': isVoid ? 1 : 0,
     };
   }
 
@@ -189,12 +190,12 @@ class PosOrder {
     return PosOrder(
       id: map['id'],
       date: map['date'],
-      subtotal: map['subtotal'] ?? 0.0,
-      taxAmount: map['taxAmount'] ?? 0.0,
-      finalTotal: map['finalTotal'] ?? 0.0,
+      subtotal: (map['subtotal'] as num?)?.toDouble() ?? 0.0,
+      taxAmount: (map['taxAmount'] as num?)?.toDouble() ?? 0.0,
+      finalTotal: (map['finalTotal'] as num?)?.toDouble() ?? 0.0,
       itemsSummary: map['itemsSummary'],
       cashierName: map['cashierName'] ?? 'Unknown',
-      isVoid: map['isVoid'] == 1, // Read as boolean
+      isVoid: map['isVoid'] == 1,
     );
   }
 }
@@ -238,13 +239,14 @@ class ShiftReport {
       id: map['id'],
       date: map['date'],
       employeeName: map['employeeName'],
-      startingCash: map['startingCash'],
-      totalSales: map['totalSales'],
-      expectedCash: map['expectedCash'],
-      actualCash: map['actualCash'],
-      variance: map['variance'],
+      startingCash: (map['startingCash'] as num).toDouble(),
+      totalSales: (map['totalSales'] as num).toDouble(),
+      expectedCash: (map['expectedCash'] as num).toDouble(),
+      actualCash: (map['actualCash'] as num).toDouble(),
+      variance: (map['variance'] as num).toDouble(),
     );
   }
 }
 
+// Global instance
 final cartState = CartState();
