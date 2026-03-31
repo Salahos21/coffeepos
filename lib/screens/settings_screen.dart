@@ -1,13 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:path/path.dart' as p;
-import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
-import '../database_helper.dart';
 import '../providers/language_provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/supabase_helper.dart'; // Added for Cafe ID display
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,101 +24,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
   }
 
+  // lib/screens/settings_screen.dart
+
   Future<void> _loadSettings() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.cafeId == null) return;
+
+    // 1. Load from Cloud via Supabase
+    final settings = await SupabaseHelper.instance.getCafeSettings(auth.cafeId!);
+
+    if (settings != null) {
+      setState(() {
+        _businessNameController.text = settings['business_name'] ?? '';
+        _emailController.text = settings['reporting_email'] ?? '';
+      });
+    }
+
+    // 2. Load the Password locally (Keep passwords off the cloud for now)
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _businessNameController.text = prefs.getString('businessName') ?? 'My Coffee Shop';
-      _emailController.text = prefs.getString('reportingEmail') ?? '';
       _passwordController.text = prefs.getString('appPassword') ?? '';
     });
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('businessName', _businessNameController.text.trim());
-    await prefs.setString('reportingEmail', _emailController.text.trim());
-    await prefs.setString('appPassword', _passwordController.text.trim());
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final cafeId = auth.cafeId;
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Settings saved successfully!'),
-        backgroundColor: Color(0xFF006E3B),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
+    if (cafeId == null) return;
 
-  Future<void> _exportDatabase() async {
     try {
-      final dbFolder = await getApplicationDocumentsDirectory();
-      final dbPath = p.join(dbFolder.path, 'pos_database.db');
-      final dbFile = File(dbPath);
+      // 1. Save Business Info to Supabase
+      await SupabaseHelper.instance.updateCafeSettings(
+        cafeId: cafeId,
+        businessName: _businessNameController.text.trim(),
+        reportingEmail: _emailController.text.trim(),
+      );
 
-      if (await dbFile.exists()) {
-        await Share.shareXFiles(
-          [XFile(dbPath)],
-          subject: 'Tactile POS Database Backup',
-        );
-      } else {
-        throw Exception("Database file not found.");
-      }
-    } catch (e) {
+      // 2. Save Password locally (for Edge Function secrets, use Dashboard)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('appPassword', _passwordController.text.trim());
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('Settings synced to Cloud!'),
+          backgroundColor: Color(0xFF006E3B),
+        ),
       );
-    }
-  }
-
-  Future<void> _importDatabase() async {
-    try {
-      await DatabaseHelper.instance.close();
-      FilePickerResult? result = await FilePicker.platform.pickFiles();
-
-      if (result != null && result.files.single.path != null) {
-        File pickedFile = File(result.files.single.path!);
-        final dbFolder = await getApplicationDocumentsDirectory();
-        final dbPath = p.join(dbFolder.path, 'pos_database.db');
-
-        bool confirm = await _showConfirmDialog();
-        if (!confirm) return;
-
-        await pickedFile.copy(dbPath);
-        if (!mounted) return;
-
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('Import Successful'),
-            content: const Text('Database restored. Restart required.'),
-            actions: [
-              ElevatedButton(onPressed: () => exit(0), child: const Text('RESTART NOW')),
-            ],
-          ),
-        );
-      }
     } catch (e) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Error syncing: $e'), backgroundColor: Colors.red),
       );
     }
-  }
-
-  Future<bool> _showConfirmDialog() async {
-    return await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Overwrite Database?'),
-        content: const Text('This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('IMPORT')),
-        ],
-      ),
-    ) ?? false;
   }
 
   Widget _buildLanguageButton(BuildContext context, String label, String code) {
@@ -144,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final lang = Provider.of<LanguageProvider>(context);
+    final auth = Provider.of<AuthProvider>(context); // Access Auth for Café ID
 
     return Scaffold(
       appBar: AppBar(title: Text(lang.t('settings'))),
@@ -174,7 +130,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF006E3B))),
             const SizedBox(height: 16),
 
-            // Business Name
             TextField(
               controller: _businessNameController,
               decoration: InputDecoration(
@@ -185,7 +140,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Email Field (Restored)
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
@@ -197,7 +151,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Password Field (Restored)
             TextField(
               controller: _passwordController,
               obscureText: true,
@@ -221,48 +174,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 40),
             const Divider(),
 
-            // --- DATA & BACKUPS ---
+            // --- DEVICE & CLOUD INFO ---
             const SizedBox(height: 24),
-            const Text('Data & Backups', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _exportDatabase,
-                    icon: const Icon(Icons.cloud_upload),
-                    label: const Text('EXPORT'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _importDatabase,
-                    icon: const Icon(Icons.cloud_download),
-                    label: const Text('IMPORT'),
-                  ),
-                ),
-              ],
-            ),
-
-            // --- DEBUG SECTION ---
-            const SizedBox(height: 60),
-            const Divider(color: Colors.redAccent),
-            const Text('Developer Tools', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            const Text('Cloud Sync Info', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: () async {
-                await DatabaseHelper.instance.seedHistoricalData();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('90 Days Data Injected!'), backgroundColor: Colors.redAccent),
-                );
-              },
-              icon: const Icon(Icons.bug_report, color: Colors.white),
-              label: const Text('INJECT FAKE DATA', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent.withValues(alpha: 0.8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text("Active Café ID", style: TextStyle(fontSize: 14, color: Colors.grey)),
+              subtitle: Text(auth.cafeId ?? "Not Linked", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+              trailing: IconButton(
+                icon: const Icon(Icons.logout, color: Colors.redAccent),
+                onPressed: () => auth.unlinkDevice(), // Button to reset the tablet
               ),
+            ),
+            const Text(
+              "This tablet is linked to your cloud account. To switch cafés, use the logout icon above.",
+              style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
             ),
           ],
         ),

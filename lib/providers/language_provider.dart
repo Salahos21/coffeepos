@@ -100,6 +100,7 @@ class LanguageProvider extends ChangeNotifier {
       'theme_green': 'Classic Green',
       'theme_blue': 'Ocean Blue',
       'theme_dark': 'Midnight Dark',
+      'business_reporting': 'Business Reporting'
     },
     'fr': {
       'register': 'Caisse',
@@ -163,6 +164,7 @@ class LanguageProvider extends ChangeNotifier {
       'theme_green': 'Vert Classique',
       'theme_blue': 'Bleu Océan',
       'theme_dark': 'Sombre Minuit',
+      'business_reporting': 'Rapport'
     },
     'ar': {
       'register': 'صندوق البيع',

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_models.dart';
-import '../database_helper.dart';
-import '../providers/language_provider.dart'; // Added
+import '../services/supabase_helper.dart';
+import '../providers/auth_provider.dart';
+import '../providers/language_provider.dart';
 import 'dart:io';
 
 class POSCenterArea extends StatefulWidget {
@@ -24,29 +25,46 @@ class _POSCenterAreaState extends State<POSCenterArea> {
   @override
   void initState() {
     super.initState();
-    _loadMenuFromDatabase();
+    _loadMenuFromCloud();
   }
 
-  Future<void> _loadMenuFromDatabase() async {
-    final dbProducts = await DatabaseHelper.instance.getAllProducts();
-    final dbCategories = await DatabaseHelper.instance.getAllCategories();
-    final categoryNames = ['All'] + dbCategories.map((c) => c.name).toList();
+  Future<void> _loadMenuFromCloud() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final String? cafeId = auth.cafeId;
 
-    setState(() {
-      products = dbProducts;
-      dynamicCategories = categoryNames;
-      if (!dynamicCategories.contains(selectedCategory)) {
-        selectedCategory = 'All';
+    if (cafeId == null) {
+      setState(() => isLoading = false);
+      return;
+    }
+
+    try {
+      final dbProducts = await SupabaseHelper.instance.getProducts(cafeId);
+      final dbCategories = await SupabaseHelper.instance.getCategories(cafeId);
+
+      final categoryNames = ['All'] + dbCategories.map((c) => c.name).toList();
+
+      if (mounted) {
+        setState(() {
+          products = dbProducts;
+          dynamicCategories = categoryNames;
+          if (!dynamicCategories.contains(selectedCategory)) {
+            selectedCategory = 'All';
+          }
+          _filterProducts();
+          isLoading = false;
+        });
       }
-      _filterProducts();
-      isLoading = false;
-    });
+    } catch (e) {
+      debugPrint("SaaS Load Error: $e");
+      if (mounted) setState(() => isLoading = false);
+    }
   }
 
   void _filterProducts() {
     setState(() {
       filteredProducts = products.where((product) {
-        final matchesCategory = selectedCategory == 'All' || product.category == selectedCategory;
+        // FIX: Changed .category to .categoryName
+        final matchesCategory = selectedCategory == 'All' || product.categoryName == selectedCategory;
         final matchesSearch = product.name.toLowerCase().contains(searchQuery.toLowerCase());
         return matchesCategory && matchesSearch;
       }).toList();
@@ -63,7 +81,6 @@ class _POSCenterAreaState extends State<POSCenterArea> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -71,7 +88,6 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Tactile POS', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                  // Note: Shift info could be localized too if needed
                   Text(lang.currentLocale.languageCode == 'ar'
                       ? 'المنصة الرئيسية • الوردية: الصباحية'
                       : 'Main Counter • Shift: Morning Crew',
@@ -104,7 +120,10 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                 children: [
                   IconButton(onPressed: () {}, icon: const Icon(Icons.notifications_none, color: Colors.black87)),
                   IconButton(onPressed: () {}, icon: const Icon(Icons.settings_outlined, color: Colors.black87)),
-                  IconButton(onPressed: () {}, icon: const Icon(Icons.sync, color: Colors.black87)),
+                  IconButton(
+                      onPressed: () => _loadMenuFromCloud(),
+                      icon: const Icon(Icons.sync, color: Colors.black87)
+                  ),
                   if (MediaQuery.of(context).size.width < 950)
                     IconButton(
                       onPressed: () => Scaffold.of(context).openEndDrawer(),
@@ -114,10 +133,7 @@ class _POSCenterAreaState extends State<POSCenterArea> {
               ),
             ],
           ),
-
           const SizedBox(height: 32),
-
-          // Categories Row
           SizedBox(
             height: 40,
             child: ListView.builder(
@@ -126,13 +142,10 @@ class _POSCenterAreaState extends State<POSCenterArea> {
               itemBuilder: (context, index) {
                 final category = dynamicCategories[index];
                 final isSelected = selectedCategory == category;
-
-                // Logic: Attempt to translate the category name (e.g. 'Coffee' -> 'قهوة')
-                // We use .toLowerCase() as a key to make the dictionary more robust
                 final displayLabel = lang.t(category.toLowerCase());
 
                 return Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 12.0), // Directional padding!
+                  padding: const EdgeInsetsDirectional.only(end: 12.0),
                   child: ChoiceChip(
                     label: Text(displayLabel, style: TextStyle(
                       color: isSelected ? Colors.white : Colors.black87,
@@ -154,13 +167,12 @@ class _POSCenterAreaState extends State<POSCenterArea> {
               },
             ),
           ),
-
           const SizedBox(height: 24),
-
-          // Product Grid
           Expanded(
             child: isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF006E3B)))
+                : filteredProducts.isEmpty
+                ? const Center(child: Text("No products found for this café"))
                 : GridView.builder(
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: 280,
@@ -185,7 +197,7 @@ class _POSCenterAreaState extends State<POSCenterArea> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Padding(
@@ -201,7 +213,7 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                       ? Image.network(
                     product.image,
                     height: 120, width: double.infinity, fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(height: 120, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
+                    errorBuilder: (context, error, stackTrace) => Container(height: 120, color: Colors.grey[200], child: const Icon(Icons.fastfood, color: Colors.grey)),
                   )
                       : Image.file(
                     File(product.image),
@@ -210,10 +222,9 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                   ),
                 ),
                 if (product.tag != null)
-                  Positioned(
+                  PositionedDirectional(
                     top: 8,
-                    // Use PositionedDirectional to make tags flip to left in Arabic
-                    // But usually, badges look better on one side, we'll use Directional here:
+                    start: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(color: product.tagColor, borderRadius: BorderRadius.circular(8)),
@@ -230,7 +241,7 @@ class _POSCenterAreaState extends State<POSCenterArea> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('\$${product.price.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                Text('DH ${product.price.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 Container(
                   decoration: const BoxDecoration(color: Color(0xFF006E3B), shape: BoxShape.circle),
                   child: IconButton(
@@ -238,13 +249,6 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                     icon: const Icon(Icons.add, color: Colors.white),
                     onPressed: () {
                       cartState.addItem(product);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text('${product.name} ${lang.t('add_to_cart')}'),
-                              duration: const Duration(milliseconds: 800),
-                              behavior: SnackBarBehavior.floating
-                          )
-                      );
                     },
                   ),
                 ),

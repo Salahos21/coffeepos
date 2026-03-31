@@ -1,7 +1,8 @@
+// lib/components/active_order_sidebar.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_models.dart';
-import '../database_helper.dart';
+import '../services/supabase_helper.dart';
 import '../providers/auth_provider.dart';
 import '../providers/language_provider.dart';
 import 'center_area.dart';
@@ -17,15 +18,16 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
   @override
   void initState() {
     super.initState();
-    _loadTaxRate();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTaxRate());
   }
 
   Future<void> _loadTaxRate() async {
-    final rate = await DatabaseHelper.instance.getTaxRate();
-    if (mounted) {
-      setState(() {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.cafeId != null) {
+      final rate = await SupabaseHelper.instance.getTaxRate(auth.cafeId!);
+      if (mounted) {
         cartState.currentTaxRate = rate;
-      });
+      }
     }
   }
 
@@ -42,17 +44,23 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
       builder: (context, child) {
         return LayoutBuilder(
           builder: (context, constraints) {
-            bool isTablet = constraints.maxWidth >= 800;
+            bool isTablet = constraints.maxWidth >= 600;
 
             if (isTablet) {
               return Row(
                 children: [
+                  // Center area always expands to fill available space
                   const Expanded(child: POSCenterArea()),
-                  const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
-                  _buildCartPanel(context),
+
+                  // UX IMPROVEMENT: Only show the sidebar if the cart has items
+                  if (cartState.items.isNotEmpty) ...[
+                    const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
+                    _buildCartPanel(context),
+                  ],
                 ],
               );
             } else {
+              // Mobile view remains the same (FAB handles the cart)
               final currency = _getCurrency(lang);
               return Scaffold(
                 body: const POSCenterArea(),
@@ -103,22 +111,21 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(color: Colors.white.withAlpha(128), borderRadius: BorderRadius.circular(12)),
-                  child: const Text('#4921', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)),
+                  child: Text(
+                      '#${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)
+                  ),
                 ),
               ],
             ),
           ),
-
           Expanded(
-            child: cartState.items.isEmpty
-                ? Center(child: Text(lang.t('cart_empty')))
-                : ListView.builder(
+            child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               itemCount: cartState.items.length,
               itemBuilder: (context, index) => _buildCartItem(cartState.items[index], currency),
             ),
           ),
-
           Container(
             padding: const EdgeInsets.all(24.0),
             decoration: BoxDecoration(
@@ -142,7 +149,11 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
                   width: double.infinity,
                   height: 56,
                   child: ElevatedButton.icon(
-                    onPressed: cartState.items.isEmpty ? null : () => _showCheckoutConfirmation(context, currentUser?.name ?? 'Guest'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF006E3B),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => _showCheckoutConfirmation(context, currentUser?.name ?? 'Guest'),
                     icon: const Icon(Icons.check_circle_outline, color: Colors.white),
                     label: Text(lang.t('checkout'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   ),
@@ -155,6 +166,7 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
     );
   }
 
+  // ... (Rest of the methods: _buildCartItem, _buildQtyButton, _showCheckoutConfirmation, _buildReceiptRow, _buildSummaryRow, _showMobileCart remain the same)
   Widget _buildCartItem(CartItem item, String currency) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -172,7 +184,6 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
               children: [
                 Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 8),
-                // FIX: Swap order so [+] is first (Left for EN/FR) and [-] is last (Right for EN/FR)
                 Row(
                   children: [
                     _buildQtyButton(Icons.add, () => cartState.addItem(item.product)),
@@ -193,7 +204,7 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
           ),
           Text(
             '$currency ${(item.product.price * item.quantity).toStringAsFixed(2)}',
-            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF006E3B)),
+            style: const TextStyle(fontWeight: FontWeight.bold, color: const Color(0xFF006E3B)),
           ),
         ],
       ),
@@ -215,34 +226,81 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
     );
   }
 
+  bool _isProcessingCheckout = false;
+
   void _showCheckoutConfirmation(BuildContext context, String cashierName) {
     final lang = Provider.of<LanguageProvider>(context, listen: false);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
     final currency = _getCurrency(lang);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(lang.t('confirm_order')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ...cartState.items.map((item) => _buildReceiptRow(
-                '${item.quantity}x ${item.product.name}',
-                '$currency ${(item.product.price * item.quantity).toStringAsFixed(2)}')),
-            const Divider(),
-            _buildReceiptRow(lang.t('total'), '$currency ${cartState.finalTotal.toStringAsFixed(2)}', isBold: true),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(lang.t('cancel'))),
-          ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                cartState.clearCart();
-              },
-              child: Text(lang.t('confirm_payment'))
-          ),
-        ],
+      barrierDismissible: !_isProcessingCheckout,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(lang.t('confirm_order')),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ...cartState.items.map((item) => _buildReceiptRow(
+                        '${item.quantity}x ${item.product.name}',
+                        '$currency ${(item.product.price * item.quantity).toStringAsFixed(2)}')),
+                    const Divider(),
+                    _buildReceiptRow(lang.t('total'), '$currency ${cartState.finalTotal.toStringAsFixed(2)}', isBold: true),
+                    if (_isProcessingCheckout)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 20),
+                        child: CircularProgressIndicator(color: Color(0xFF006E3B)),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: _isProcessingCheckout ? null : () => Navigator.pop(context),
+                    child: Text(lang.t('cancel'))
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF006E3B)),
+                  onPressed: _isProcessingCheckout ? null : () async {
+                    setDialogState(() => _isProcessingCheckout = true);
+
+                    try {
+                      final newOrder = PosOrder(
+                        date: DateTime.now().toIso8601String(),
+                        subtotal: cartState.subtotal,
+                        taxAmount: cartState.taxAmount,
+                        finalTotal: cartState.finalTotal,
+                        itemsSummary: cartState.items.map((i) => '${i.quantity}x ${i.product.name}').join(', '),
+                        cashierName: cashierName,
+                      );
+
+                      await SupabaseHelper.instance.insertOrder(newOrder, auth.cafeId!);
+                      cartState.clearCart();
+                      if (context.mounted) Navigator.pop(context);
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Order Successful"),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                      );
+                    } finally {
+                      setDialogState(() => _isProcessingCheckout = false);
+                    }
+                  },
+                  child: Text(lang.t('confirm_payment'), style: const TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
       ),
     );
   }
