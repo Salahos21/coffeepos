@@ -4,6 +4,9 @@ import '../main.dart';
 import '../providers/auth_provider.dart';
 import '../providers/language_provider.dart';
 
+// IMPORTANT: Make sure you created this file from our previous steps!
+import 'start_shift_screen.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -41,15 +44,24 @@ class _LoginScreenState extends State<LoginScreen> {
     final lang = Provider.of<LanguageProvider>(context, listen: false);
     final auth = context.read<AuthProvider>();
 
-    // NEW SaaS LOGIC: Verify via Supabase through the AuthProvider
     final success = await auth.login(_enteredPin);
 
     if (success) {
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const POSMainLayout()),
-        );
+        // --- THE TRAFFIC COP LOGIC ---
+        if (auth.hasActiveShift) {
+          print("DEBUG: Active shift found. Routing to POS.");
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const POSMainLayout()),
+          );
+        } else {
+          print("DEBUG: No active shift. Routing to Start Screen.");
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const StartShiftScreen()),
+          );
+        }
       }
     } else {
       setState(() {
@@ -59,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(lang.t('invalid_pin')),
+            content: Text(lang.t('invalid_pin') ?? 'Invalid PIN'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -78,8 +90,8 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Center(
         child: SingleChildScrollView(
           child: auth.cafeId == null
-              ? _buildCafeLinkView(lang, auth) // Show Setup if no Cafe ID
-              : _buildPinPadView(lang),        // Show PIN Pad if linked
+              ? _buildCafeLinkView(lang, auth)
+              : _buildPinPadView(lang),
         ),
       ),
     );
@@ -88,7 +100,9 @@ class _LoginScreenState extends State<LoginScreen> {
   // --- VIEW 1: LINK DEVICE TO CAFE ---
   Widget _buildCafeLinkView(LanguageProvider lang, AuthProvider auth) {
     return Container(
-      width: 400,
+      // CHANGED: Use constraints instead of fixed width for responsiveness
+      constraints: const BoxConstraints(maxWidth: 400),
+      margin: const EdgeInsets.symmetric(horizontal: 24), // Added margin for phones
       padding: const EdgeInsets.all(32),
       decoration: _cardDecoration(),
       child: Column(
@@ -129,7 +143,9 @@ class _LoginScreenState extends State<LoginScreen> {
   // --- VIEW 2: STANDARD PIN PAD ---
   Widget _buildPinPadView(LanguageProvider lang) {
     return Container(
-      width: 400,
+      // CHANGED: Use constraints instead of fixed width for responsiveness
+      constraints: const BoxConstraints(maxWidth: 400),
+      margin: const EdgeInsets.symmetric(horizontal: 24), // Added margin for phones
       padding: const EdgeInsets.all(32),
       decoration: _cardDecoration(),
       child: Column(
@@ -137,7 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           const Icon(Icons.lock_outline, size: 64, color: Color(0xFF006E3B)),
           const SizedBox(height: 16),
-          Text(lang.t('enter_pin'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          Text(lang.t('enter_pin') ?? 'Enter PIN', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
           _buildPinIndicators(),
           const SizedBox(height: 32),

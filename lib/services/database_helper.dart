@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
-import 'models/app_models.dart';
+import '../models/app_models.dart'; // Adjust path depending on where you put this file!
 import 'dart:math';
 
 class DatabaseHelper {
@@ -110,7 +110,6 @@ class DatabaseHelper {
       )
     ''');
 
-    // Default Seed Data
     await db.insert('users', {'name': 'Alice', 'role': 'Manager', 'pin': '1234'});
     await db.insert('users', {'name': 'Bob', 'role': 'Barista', 'pin': '0000'});
     await db.insert('categories', {'name': 'Coffee'});
@@ -228,7 +227,6 @@ class DatabaseHelper {
 
   Future<List<PosOrder>> getOrdersByRange(DateTime start, DateTime end) async {
     final db = await instance.database;
-    // Normalized date format to match SQLite storage
     final startStr = "${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')} 00:00";
     final endStr = "${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')} 23:59";
 

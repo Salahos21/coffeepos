@@ -147,15 +147,27 @@ class ShiftReport {
   final String employeeName;
   final double totalSales;
 
+  final List<PosOrder> orders;
+  final Map<String, int> topSellers;
+
   ShiftReport({
     this.id,
     required this.date,
     required this.employeeName,
-    required this.totalSales
+    required this.totalSales,
+    this.orders = const [],
+    this.topSellers = const {},
   });
 
-  // Corrected to use snake_case for Supabase
   Map<String, dynamic> toMap() => {
+    'date': date,
+    'employee_name': employeeName,
+    'total_sales': totalSales,
+    'orders': orders.map((o) => o.toMap()).toList(),
+    'top_sellers': topSellers,
+  };
+
+  Map<String, dynamic> toDbMap() => {
     'date': date,
     'employee_name': employeeName,
     'total_sales': totalSales,
@@ -166,6 +178,8 @@ class ShiftReport {
     date: map['date'] ?? '',
     employeeName: map['employee_name'] ?? 'Unknown',
     totalSales: (map['total_sales'] as num?)?.toDouble() ?? 0.0,
+    orders: const [],
+    topSellers: const {},
   );
 }
 

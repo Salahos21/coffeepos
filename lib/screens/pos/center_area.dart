@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/app_models.dart';
-import '../services/supabase_helper.dart';
-import '../providers/auth_provider.dart';
-import '../providers/language_provider.dart';
 import 'dart:io';
+import '../../models/app_models.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/language_provider.dart';
+import '../../services/supabase_helper.dart';
 
 class POSCenterArea extends StatefulWidget {
   const POSCenterArea({super.key});
@@ -63,7 +63,6 @@ class _POSCenterAreaState extends State<POSCenterArea> {
   void _filterProducts() {
     setState(() {
       filteredProducts = products.where((product) {
-        // FIX: Changed .category to .categoryName
         final matchesCategory = selectedCategory == 'All' || product.categoryName == selectedCategory;
         final matchesSearch = product.name.toLowerCase().contains(searchQuery.toLowerCase());
         return matchesCategory && matchesSearch;
@@ -248,7 +247,7 @@ class _POSCenterAreaState extends State<POSCenterArea> {
                     iconSize: 20, padding: const EdgeInsets.all(8), constraints: const BoxConstraints(),
                     icon: const Icon(Icons.add, color: Colors.white),
                     onPressed: () {
-                      cartState.addItem(product);
+                      context.read<CartState>().addItem(product);
                     },
                   ),
                 ),

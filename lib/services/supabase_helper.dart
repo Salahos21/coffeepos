@@ -58,7 +58,7 @@ class SupabaseHelper {
   }
 
   Future<String> uploadProductImage(File imageFile, String cafeId) async {
-    final fileName = '${cafeId}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final fileName = '$cafeId/${DateTime.now().millisecondsSinceEpoch}.jpg';
     await _supabase.storage.from('product-images').upload(fileName, imageFile);
     return _supabase.storage.from('product-images').getPublicUrl(fileName);
   }
@@ -95,12 +95,58 @@ class SupabaseHelper {
     }
   }
 
+  // --- NEW: PAGINATED ORDERS QUERY ---
+  Future<List<PosOrder>> getOrdersPaginated(String cafeId, DateTime start, DateTime end, int limit, int offset) async {
+    try {
+      final response = await _supabase
+          .from('orders')
+          .select()
+          .eq('cafe_id', cafeId)
+          .gte('date', start.toIso8601String())
+          .lte('date', DateTime(end.year, end.month, end.day, 23, 59, 59).toIso8601String())
+          .order('date', ascending: false)
+          .range(offset, offset + limit - 1);
+
+      return (response as List).map((json) => PosOrder.fromMap(json)).toList();
+    } catch (e) {
+      print("Error fetching paginated orders: $e");
+      return [];
+    }
+  }
+
   Future<void> voidOrder(int orderId, String cafeId) async {
     await _supabase
         .from('orders')
         .update({'is_void': true})
         .eq('id', orderId)
         .eq('cafe_id', cafeId);
+  }
+
+  // --- NEW: ENTERPRISE ANALYTICS (RPC) ---
+  Future<Map<String, dynamic>> getDashboardAnalytics({
+    required String cafeId,
+    required DateTime start,
+    required DateTime end,
+    String? cashierName,
+  }) async {
+    try {
+      final response = await _supabase.rpc('get_dashboard_analytics', params: {
+        'p_cafe_id': cafeId,
+        'p_start_date': start.toIso8601String(),
+        'p_end_date': DateTime(end.year, end.month, end.day, 23, 59, 59).toIso8601String(),
+        'p_cashier_name': cashierName,
+      });
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      print("Error fetching analytics RPC: $e");
+      // Return safe empty data if the database function fails or isn't created yet
+      return {
+        'rangeRevenue': 0.0,
+        'dailyRevenue': {},
+        'baristaRevenue': {},
+        'topSellers': {}
+      };
+    }
   }
 
   // --- DELETE METHODS ---
@@ -122,13 +168,41 @@ class SupabaseHelper {
     await _supabase.from('products').update(product.toMap()).eq('id', product.id).eq('cafe_id', cafeId);
   }
 
-  // --- SHIFTS ---
-  Future<void> insertShiftReport(ShiftReport report, String cafeId) async {
-    // Explicitly mapping cafe_id for SaaS architecture
-    await _supabase.from('shifts').insert({
+  // --- SHIFT TRACKING LOGIC ---
+  Future<dynamic> getActiveShift(String cafeId, String employeeName) async {
+    final response = await _supabase
+        .from('shifts')
+        .select('id')
+        .eq('cafe_id', cafeId)
+        .eq('employee_name', employeeName)
+        .eq('status', 'active')
+        .maybeSingle();
+
+    return response?['id'];
+  }
+
+  Future<dynamic> startShift(String cafeId, String employeeName) async {
+    final response = await _supabase.from('shifts').insert({
       'cafe_id': cafeId,
-      ...report.toMap(),
-    });
+      'employee_name': employeeName,
+      'date': DateTime.now().toIso8601String(),
+      'start_time': DateTime.now().toIso8601String(),
+      'status': 'active',
+      'total_sales': 0.0,
+    }).select('id').single();
+
+    return response['id'];
+  }
+
+  Future<void> closeShift(dynamic shiftId, double totalSales) async {
+    if (shiftId == null) throw Exception("No active shift ID found to close.");
+    final int formattedId = shiftId is String ? int.parse(shiftId) : shiftId;
+
+    await _supabase.from('shifts').update({
+      'end_time': DateTime.now().toIso8601String(),
+      'status': 'closed',
+      'total_sales': totalSales,
+    }).eq('id', formattedId);
   }
 
   // --- SETTINGS ---
@@ -140,6 +214,7 @@ class SupabaseHelper {
   Future<void> updateTaxRate(double rate, String cafeId) async {
     await _supabase.from('cafe_settings').upsert({'cafe_id': cafeId, 'tax_rate': rate});
   }
+
   Future<void> updateCafeSettings({
     required String cafeId,
     required String businessName,
@@ -152,13 +227,10 @@ class SupabaseHelper {
     });
   }
 
-
-  // FETCHING CLOUD SETTINGS
   Future<Map<String, dynamic>?> getCafeSettings(String cafeId) async {
     return await _supabase.from('cafe_settings').select().eq('cafe_id', cafeId).maybeSingle();
   }
 
-  // TRIGGER EDGE FUNCTION
   Future<void> sendEmailReportViaEdge({
     required String email,
     required String businessName,
@@ -170,11 +242,11 @@ class SupabaseHelper {
         body: {
           'email': email,
           'businessName': businessName,
-          'reportData': report.toMap(),
+          'report': report.toMap(),
         },
       );
     } catch (e) {
-      print("Cloud Function Error: $e");
+      print("Brevo Cloud Function Error: $e");
       rethrow;
     }
   }

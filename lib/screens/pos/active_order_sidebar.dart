@@ -1,10 +1,9 @@
-// lib/components/active_order_sidebar.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/app_models.dart';
-import '../services/supabase_helper.dart';
-import '../providers/auth_provider.dart';
-import '../providers/language_provider.dart';
+import '../../models/app_models.dart';
+import '../../services/supabase_helper.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/language_provider.dart';
 import 'center_area.dart';
 
 class POSActiveOrderSidebar extends StatefulWidget {
@@ -39,6 +38,7 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
   Widget build(BuildContext context) {
     final lang = Provider.of<LanguageProvider>(context);
 
+    // Using ListenableBuilder with the global cartState variable
     return ListenableBuilder(
       listenable: cartState,
       builder: (context, child) {
@@ -49,10 +49,8 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
             if (isTablet) {
               return Row(
                 children: [
-                  // Center area always expands to fill available space
                   const Expanded(child: POSCenterArea()),
 
-                  // UX IMPROVEMENT: Only show the sidebar if the cart has items
                   if (cartState.items.isNotEmpty) ...[
                     const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
                     _buildCartPanel(context),
@@ -60,7 +58,6 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
                 ],
               );
             } else {
-              // Mobile view remains the same (FAB handles the cart)
               final currency = _getCurrency(lang);
               return Scaffold(
                 body: const POSCenterArea(),
@@ -166,7 +163,6 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
     );
   }
 
-  // ... (Rest of the methods: _buildCartItem, _buildQtyButton, _showCheckoutConfirmation, _buildReceiptRow, _buildSummaryRow, _showMobileCart remain the same)
   Widget _buildCartItem(CartItem item, String currency) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -277,6 +273,7 @@ class _POSActiveOrderSidebarState extends State<POSActiveOrderSidebar> {
                         cashierName: cashierName,
                       );
 
+                      // REVERTED: Directly inserting into Supabase
                       await SupabaseHelper.instance.insertOrder(newOrder, auth.cafeId!);
                       cartState.clearCart();
                       if (context.mounted) Navigator.pop(context);

@@ -1,29 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'components/side_nav.dart';
-import 'components/active_order_sidebar.dart';
-import 'screens/config_screen.dart';
-import 'screens/orders_screen.dart';
+// FIX: Pointing back to the components folder!
+import 'screens/pos/active_order_sidebar.dart';
+import 'screens/config/config_screen.dart';
+import 'screens/orders/orders_screen.dart';
+import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'models/app_models.dart';
 import 'providers/language_provider.dart';
 import 'providers/auth_provider.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
-  await Supabase.initialize(
-    url: 'https://pkarwrxrrocusianlhnc.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrYXJ3cnhycm9jdXNpYW5saG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MTk5NDksImV4cCI6MjA5MDM5NTk0OX0.vcFh8Qk3jmIQBnDONh6AiC4KqunPBVht7Zgf-BaMdio',
-  );
-
   final authProvider = AuthProvider();
-  await authProvider.initializeAuth();
 
   runApp(
     MultiProvider(
@@ -56,7 +49,7 @@ class TactilePOSApp extends StatelessWidget {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: const LoginScreen(),
+          home: const SplashScreen(),
         );
       },
     );
@@ -73,45 +66,91 @@ class POSMainLayout extends StatefulWidget {
 class _POSMainLayoutState extends State<POSMainLayout> {
   int _selectedIndex = 0;
 
-  // Define screens in a list to ensure they are treated as distinct Expanded children
   final List<Widget> _screens = const [
     POSActiveOrderSidebar(),
     OrdersScreen(),
     ConfigScreen(),
   ];
 
+  void _handleLogout(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.logout();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final lang = Provider.of<LanguageProvider>(context);
+    final authProvider = Provider.of<AuthProvider>(context);
+    final currentUser = authProvider.currentUser;
+    final isManager = currentUser?.role == 'Manager';
+
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Sidebar with fixed width
-          POSSideNav(
-            selectedIndex: _selectedIndex,
-            onItemSelected: (index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
-          ),
 
-          const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFEEDDDD)),
-
-          // Main content area
-          Expanded(
-            child: Container(
-              color: Colors.white,
-              // SizedBox.expand ensures the child fills the Expanded area
-              child: SizedBox.expand(
-                child: IndexedStack(
-                  index: _selectedIndex,
-                  children: _screens,
-                ),
+      // TOP BAR: Profile, Role, and Logout
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF006E3B),
+        foregroundColor: Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.coffee, size: 20),
+            const SizedBox(width: 8),
+            Text(currentUser?.name ?? 'User', style: const TextStyle(fontSize: 16)),
+          ],
+        ),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Text(
+                currentUser?.role == 'Manager' ? (lang.t('manager_role') ?? 'Manager') : (lang.t('barista_role') ?? 'Barista'),
+                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.8)),
               ),
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => _handleLogout(context),
+            tooltip: lang.t('logout'),
+          ),
+        ],
+      ),
+
+      // MAIN CONTENT
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
+
+      // BOTTOM NAV
+      bottomNavigationBar: NavigationBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: const Color(0xFF006E3B).withValues(alpha: 0.15),
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.point_of_sale_outlined),
+            selectedIcon: const Icon(Icons.point_of_sale, color: Color(0xFF006E3B)),
+            label: lang.t('register') ?? 'Register',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.receipt_long_outlined),
+            selectedIcon: const Icon(Icons.receipt_long, color: Color(0xFF006E3B)),
+            label: lang.t('orders') ?? 'Orders',
+          ),
+          if (isManager)
+            NavigationDestination(
+              icon: const Icon(Icons.inventory_2_outlined),
+              selectedIcon: const Icon(Icons.inventory_2, color: Color(0xFF006E3B)),
+              label: lang.t('config') ?? 'Config',
+            ),
         ],
       ),
     );
