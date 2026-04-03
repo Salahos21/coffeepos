@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_fonts/google_fonts.dart'; // ADDED GOOGLE FONTS
 
 enum AppThemeColor { green, blue, dark }
 
@@ -13,7 +14,7 @@ class ThemeProvider extends ChangeNotifier {
     final themeName = prefs.getString('app_theme');
     if (themeName != null) {
       _currentTheme = AppThemeColor.values.firstWhere(
-        (e) => e.name == themeName,
+            (e) => e.name == themeName,
         orElse: () => AppThemeColor.green,
       );
       notifyListeners();
@@ -32,7 +33,7 @@ class ThemeProvider extends ChangeNotifier {
       case AppThemeColor.blue:
         return _buildTheme(
           primary: const Color(0xFF0056D2),
-          background: const Color(0xFFF0F4FF),
+          background: const Color(0xFFF4F7FC), // Softer background
           surface: Colors.white,
           isDark: false,
         );
@@ -44,9 +45,9 @@ class ThemeProvider extends ChangeNotifier {
           isDark: true,
         );
       case AppThemeColor.green:
-          return _buildTheme(
+        return _buildTheme(
           primary: const Color(0xFF006E3B),
-          background: const Color(0xFFFCF8F8),
+          background: const Color(0xFFF9FAFB), // Modern neutral grey-white
           surface: Colors.white,
           isDark: false,
         );
@@ -60,7 +61,7 @@ class ThemeProvider extends ChangeNotifier {
     required bool isDark,
   }) {
     final baseTextTheme = isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme;
-    final textColor = isDark ? Colors.white : Colors.black;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827); // Darker, richer text
 
     return ThemeData(
       useMaterial3: true,
@@ -76,10 +77,11 @@ class ThemeProvider extends ChangeNotifier {
         backgroundColor: surface,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
+        titleTextStyle: GoogleFonts.inter( // UPGRADED FONT
           color: textColor,
           fontSize: 20,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
         ),
         iconTheme: IconThemeData(color: textColor),
       ),
@@ -88,34 +90,37 @@ class ThemeProvider extends ChangeNotifier {
           backgroundColor: primary,
           foregroundColor: isDark ? Colors.black : Colors.white,
           minimumSize: const Size(double.infinity, 56),
+          elevation: 0, // Flat design
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16), // Softer, rounder buttons
           ),
-          textStyle: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+          textStyle: GoogleFonts.inter( // UPGRADED FONT
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
-      textTheme: baseTextTheme.copyWith(
-        displayLarge: TextStyle(
+      // INJECT GOOGLE FONTS ACROSS THE ENTIRE APP
+      textTheme: GoogleFonts.interTextTheme(baseTextTheme).copyWith(
+        displayLarge: GoogleFonts.inter(
           fontSize: 32,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w800,
+          color: textColor,
+          letterSpacing: -1.0,
+        ),
+        titleLarge: GoogleFonts.inter(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
           color: textColor,
           letterSpacing: -0.5,
         ),
-        titleLarge: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: textColor,
-        ),
-        bodyLarge: TextStyle(
+        bodyLarge: GoogleFonts.inter(
           fontSize: 16,
-          color: isDark ? Colors.white70 : Colors.black87,
+          color: isDark ? Colors.white70 : const Color(0xFF374151),
         ),
-        bodyMedium: TextStyle(
+        bodyMedium: GoogleFonts.inter(
           fontSize: 14,
-          color: isDark ? Colors.white60 : Colors.black54,
+          color: isDark ? Colors.white60 : const Color(0xFF6B7280),
         ),
       ),
     );

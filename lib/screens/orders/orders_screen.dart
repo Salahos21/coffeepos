@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'summary_cards.dart';
 import 'analytics_dashboard.dart';
 import 'order_list_tile.dart';
+import '../login_screen.dart'; // REQUIRED for the routing fix
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -34,7 +35,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   // --- RANGE STATE ---
   DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
   DateTime _endDate = DateTime.now();
-  int _activeRangeDays = 0; // 0: Today, 30: 30 Days, 365: 1 Year, -1: Custom
+  int _activeRangeDays = 0;
 
   double _todayRevenue = 0;
   double _rangeRevenue = 0;
@@ -44,7 +45,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   List<String> _recentDays = [];
   Map<String, double> _revenueByBarista = {};
 
-  late RealtimeChannel _orderSubscription;
+  RealtimeChannel? _orderSubscription;
 
   @override
   void initState() {
@@ -86,7 +87,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
-    Supabase.instance.client.removeChannel(_orderSubscription);
+    if (_orderSubscription != null) {
+      Supabase.instance.client.removeChannel(_orderSubscription!);
+    }
     super.dispose();
   }
 
@@ -117,7 +120,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
     DateTime currentDate = _startDate;
     DateTime endOfDay = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
 
-    // Determine label interval to prevent "black ink bar" overlap
     int totalDays = endOfDay.difference(_startDate).inDays + 1;
     int labelInterval = 1;
     if (totalDays > 300) labelInterval = 45;
@@ -207,20 +209,67 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void _handleCloseShift() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     if (!auth.hasActiveShift) return;
+
     setState(() => _isClosingShift = true);
 
     try {
       DateTime today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
       List<PosOrder> allTodayOrders = await SupabaseHelper.instance.getOrdersByRange(auth.cafeId!, today, DateTime.now());
+
       List<PosOrder> shiftOrders = allTodayOrders.where((o) => o.cashierName == auth.currentUser?.name).toList();
       final double shiftSales = shiftOrders.where((o) => !o.isVoid).fold(0, (sum, o) => sum + o.finalTotal);
+
+      Map<String, int> reportItemCounts = {};
+      for (var order in shiftOrders) {
+        if (!order.isVoid) {
+          final items = order.itemsSummary.split(', ');
+          for (var itemStr in items) {
+            final parts = itemStr.split('x ');
+            if (parts.length == 2) {
+              reportItemCounts[parts[1]] = (reportItemCounts[parts[1]] ?? 0) + (int.tryParse(parts[0]) ?? 0);
+            }
+          }
+        }
+      }
+
+      final sortedSellers = reportItemCounts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final topSellers = Map.fromEntries(sortedSellers.take(3));
+
+      final report = ShiftReport(
+        date: DateTime.now().toIso8601String(),
+        employeeName: auth.currentUser?.name ?? 'Unknown',
+        totalSales: shiftSales,
+        orders: shiftOrders,
+        topSellers: topSellers,
+      );
+
+      final settings = await SupabaseHelper.instance.getCafeSettings(auth.cafeId!);
+      final String reportingEmail = settings?['reporting_email'] ?? '';
+
+      if (reportingEmail.isNotEmpty) {
+        await SupabaseHelper.instance.sendEmailReportViaEdge(
+          email: reportingEmail,
+          businessName: settings?['business_name'] ?? 'Tactile POS',
+          report: report,
+        );
+      }
 
       await auth.endShift(shiftSales);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Shift Closed"), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Shift Closed & Email Sent!"), backgroundColor: Colors.green));
         auth.logout();
-        Navigator.of(context).popUntil((route) => route.isFirst);
+
+        // THE FIX: Use Instant Snap Routing to break out of the white screen and go straight to Login
+        Navigator.pushAndRemoveUntil(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+              (route) => false,
+        );
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
@@ -251,10 +300,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Future<void> _selectDateRange(BuildContext context) async {
     final picked = await showDateRangePicker(
-        context: context,
-        firstDate: DateTime(2020),
-        lastDate: DateTime.now(),
-        initialDateRange: DateTimeRange(start: _startDate, end: _endDate)
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF006E3B),
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
@@ -267,6 +328,33 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
+  Widget _buildDateFilterPill(String label, int daysValue) {
+    final isSelected = _activeRangeDays == daysValue;
+    return GestureDetector(
+      onTap: () => _setQuickRange(daysValue),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF006E3B) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? Colors.transparent : Colors.grey.shade200),
+          boxShadow: isSelected
+              ? [BoxShadow(color: const Color(0xFF006E3B).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+              color: isSelected ? Colors.white : Colors.black87,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+              fontSize: 14
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF006E3B)));
@@ -277,11 +365,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
     return CustomScrollView(
       controller: _scrollController,
+      physics: const BouncingScrollPhysics(),
       slivers: [
         SliverAppBar(
           floating: true, pinned: true, expandedHeight: 60,
           backgroundColor: Theme.of(context).scaffoldBackgroundColor, surfaceTintColor: Colors.transparent,
-          title: Text(isManager ? lang.t('order_history') ?? 'Order History' : lang.t('orders') ?? 'Orders', style: const TextStyle(color: Colors.black, fontSize: 22, fontWeight: FontWeight.bold)),
+          title: Text(isManager ? lang.t('order_history') ?? 'Order History' : lang.t('orders') ?? 'Orders', style: const TextStyle(color: Colors.black, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
           actions: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -292,8 +381,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   icon: _isClosingShift
                       ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Icon(Icons.lock_clock, size: 16),
-                  label: Text(lang.t('close_shift') ?? 'Close Shift', style: const TextStyle(fontSize: 11)),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800, foregroundColor: Colors.white),
+                  label: Text(lang.t('close_shift') ?? 'Close Shift', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade800,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                  ),
                 ),
               ),
             ),
@@ -302,58 +396,35 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
         SliverToBoxAdapter(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: padding, vertical: 8.0),
+            padding: EdgeInsets.symmetric(horizontal: padding, vertical: 16.0),
             child: Wrap(
-              spacing: 8.0,
-              runSpacing: 8.0,
+              spacing: 12.0,
+              runSpacing: 12.0,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (isManager) ...[
-                  FilterChip(
-                    label: const Text("Today"),
-                    selected: _activeRangeDays == 0,
-                    showCheckmark: false,
-                    selectedColor: const Color(0xFF006E3B).withOpacity(0.15),
-                    labelStyle: TextStyle(
-                      color: _activeRangeDays == 0 ? const Color(0xFF006E3B) : Colors.black,
-                      fontWeight: _activeRangeDays == 0 ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (_) => _setQuickRange(0),
-                  ),
-                  FilterChip(
-                    label: const Text("30 Days"),
-                    selected: _activeRangeDays == 30,
-                    showCheckmark: false,
-                    selectedColor: const Color(0xFF006E3B).withOpacity(0.15),
-                    labelStyle: TextStyle(
-                      color: _activeRangeDays == 30 ? const Color(0xFF006E3B) : Colors.black,
-                      fontWeight: _activeRangeDays == 30 ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (_) => _setQuickRange(30),
-                  ),
-                  FilterChip(
-                    label: const Text("1 Year"),
-                    selected: _activeRangeDays == 365,
-                    showCheckmark: false,
-                    selectedColor: const Color(0xFF006E3B).withOpacity(0.15),
-                    labelStyle: TextStyle(
-                      color: _activeRangeDays == 365 ? const Color(0xFF006E3B) : Colors.black,
-                      fontWeight: _activeRangeDays == 365 ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (_) => _setQuickRange(365),
-                  ),
+                  _buildDateFilterPill("Today", 0),
+                  _buildDateFilterPill("30 Days", 30),
+                  _buildDateFilterPill("1 Year", 365),
+
                   OutlinedButton.icon(
                     onPressed: () => _selectDateRange(context),
-                    icon: const Icon(Icons.calendar_month, size: 18, color: Color(0xFF006E3B)),
+                    icon: Icon(Icons.calendar_month, size: 18, color: _activeRangeDays == -1 ? const Color(0xFF006E3B) : Colors.black54),
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: _activeRangeDays == -1 ? const Color(0xFF006E3B) : Colors.grey.shade300),
+                        side: BorderSide(color: _activeRangeDays == -1 ? const Color(0xFF006E3B) : Colors.grey.shade200),
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
                     ),
                     label: Text(
                       "${DateFormat('MMM d').format(_startDate)} - ${DateFormat('MMM d').format(_endDate)}",
-                      style: TextStyle(color: _activeRangeDays == -1 ? const Color(0xFF006E3B) : Colors.black, fontWeight: _activeRangeDays == -1 ? FontWeight.bold : FontWeight.normal),
+                      style: TextStyle(color: _activeRangeDays == -1 ? const Color(0xFF006E3B) : Colors.black87, fontWeight: _activeRangeDays == -1 ? FontWeight.w700 : FontWeight.w600),
                     ),
                   ),
-                  IconButton(onPressed: () => Share.share("Report: Total DH ${_rangeRevenue}"), icon: const Icon(Icons.share, color: Color(0xFF006E3B))),
+                  Container(
+                      decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade200)),
+                      child: IconButton(onPressed: () => Share.share("Report: Total DH ${_rangeRevenue}"), icon: const Icon(Icons.ios_share, color: Colors.black87, size: 20))
+                  ),
                 ],
               ],
             ),
@@ -365,7 +436,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           sliver: SliverToBoxAdapter(
             child: Column(
               children: [
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 SummaryCardsRow(todayRevenue: _todayRevenue, rangeRevenue: _rangeRevenue, orderCount: _orders.length, lang: lang),
                 const SizedBox(height: 32),
                 AnalyticsDashboard(chartData: _chartData, recentDays: _recentDays, topSellers: _topSellers, revenueByBarista: _revenueByBarista),
@@ -383,13 +454,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 spacing: 16, runSpacing: 16,
                 children: [
-                  Text(lang.t('order_history') ?? 'Order History', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  Text(lang.t('order_history') ?? 'Recent Orders', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+
                   Container(
-                      constraints: const BoxConstraints(maxWidth: 300), height: 45,
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25), border: Border.all(color: const Color(0xFFEEDDDD))),
+                      constraints: const BoxConstraints(maxWidth: 300), height: 48,
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4))]
+                      ),
                       child: TextField(
                           onChanged: _filterOrders,
-                          decoration: InputDecoration(hintText: lang.t('search_hint') ?? 'Search...', prefixIcon: const Icon(Icons.search, size: 20), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(vertical: 10))
+                          decoration: InputDecoration(
+                              hintText: lang.t('search_hint') ?? 'Search orders...',
+                              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                              prefixIcon: const Icon(Icons.search, size: 20, color: Colors.black45),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(vertical: 14)
+                          )
                       )
                   ),
                 ]
@@ -397,10 +480,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         ),
 
-        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
         _filteredOrders.isEmpty
-            ? const SliverFillRemaining(child: Center(child: Text('No orders found')))
+            ? SliverFillRemaining(child: Center(child: Text('No orders found', style: TextStyle(color: Colors.grey.shade500))))
             : SliverPadding(
           padding: EdgeInsets.symmetric(horizontal: padding),
           sliver: SliverList(
@@ -417,7 +500,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             child: Center(
               child: _isFetchingMore
                   ? const CircularProgressIndicator(color: Color(0xFF006E3B))
-                  : !_hasMoreData && _orders.isNotEmpty ? const Text("End of history", style: TextStyle(color: Colors.grey)) : const SizedBox.shrink(),
+                  : !_hasMoreData && _orders.isNotEmpty ? Text("End of history", style: TextStyle(color: Colors.grey.shade400)) : const SizedBox.shrink(),
             ),
           ),
         ),

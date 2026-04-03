@@ -62,6 +62,7 @@ class LanguageProvider extends ChangeNotifier {
       'confirm_order': 'Confirm Order',
       'confirm_payment': 'Confirm Payment',
       'cancel': 'Cancel',
+      'view_cart': 'View order',
 
       // Orders Screen
       'order_history': 'Order History',
@@ -130,6 +131,7 @@ class LanguageProvider extends ChangeNotifier {
       'confirm_order': 'Confirmer Commande',
       'confirm_payment': 'Confirmer Paiement',
       'cancel': 'Annuler',
+      'view_cart': 'Commande',
 
       'order_history': 'Historique',
       'close_shift': 'Fin de Poste',

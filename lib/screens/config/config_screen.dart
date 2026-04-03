@@ -19,18 +19,28 @@ class ConfigScreen extends StatelessWidget {
       length: 4,
       child: Column(
         children: [
-          Material(
-            color: Colors.white,
-            elevation: 1,
+          // UPGRADED: Sleek, border-bottom tab bar instead of heavy elevation
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                  bottom: BorderSide(color: Colors.grey.shade200, width: 1.5)
+              ),
+            ),
             child: TabBar(
               isScrollable: true,
-              labelColor: const Color(0xFF006E3B),
-              unselectedLabelColor: Colors.grey,
+              labelColor: const Color(0xFF059669), // Upgraded to the new Emerald
+              unselectedLabelColor: Colors.grey.shade500,
+              indicatorColor: const Color(0xFF059669),
+              indicatorWeight: 3,
+              dividerColor: Colors.transparent, // Removes the ugly default grey line in Material 3
+              labelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: -0.3),
+              unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.3),
               tabs: [
-                Tab(text: lang.t('categories_tab')),
-                Tab(text: lang.t('products')),
-                Tab(text: lang.t('staff_tab')),
-                Tab(text: lang.t('settings')),
+                Tab(text: lang.t('categories_tab') ?? 'Categories'),
+                Tab(text: lang.t('products') ?? 'Products'),
+                Tab(text: lang.t('staff_tab') ?? 'Staff'),
+                Tab(text: lang.t('settings') ?? 'Settings'),
               ],
             ),
           ),

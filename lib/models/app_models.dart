@@ -163,6 +163,7 @@ class ShiftReport {
     'date': date,
     'employee_name': employeeName,
     'total_sales': totalSales,
+    // FIX: Include the orders so the Edge Function can build the HTML table
     'orders': orders.map((o) => o.toMap()).toList(),
     'top_sellers': topSellers,
   };

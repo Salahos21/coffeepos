@@ -17,14 +17,11 @@ class AnalyticsDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // LayoutBuilder checks the available width on the device
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Breakpoint: 800px (Standard dividing line between phone and tablet)
         final isTablet = constraints.maxWidth > 800;
 
         if (isTablet) {
-          // --- TABLET VIEW (Your original side-by-side layout) ---
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -42,7 +39,6 @@ class AnalyticsDashboard extends StatelessWidget {
             ],
           );
         } else {
-          // --- PHONE VIEW (Stacked layout) ---
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -59,17 +55,28 @@ class AnalyticsDashboard extends StatelessWidget {
   }
 
   Widget _buildBarChart() {
-    // Convert dynamic map data back to FL Chart format
+    // FIX: Adjust bar width based on amount of data to prevent "giant bar" effect
+    double barWidth = 16.0;
+    if (chartData.length < 5) barWidth = 30.0;
+    if (chartData.length == 1) barWidth = 60.0;
+
     List<BarChartGroupData> flChartGroups = chartData.map((data) {
       return BarChartGroupData(
           x: data['x'] as int,
-          barRods: [BarChartRodData(toY: data['y'] as double, color: const Color(0xFF006E3B), width: 16)]
+          barRods: [
+            BarChartRodData(
+                toY: data['y'] as double,
+                color: const Color(0xFF006E3B),
+                width: barWidth,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(4)) // Slightly rounded tops look nicer
+            )
+          ]
       );
     }).toList();
 
     return Container(
         height: 350,
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20), // Reduced slightly for mobile
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,16 +84,33 @@ class AnalyticsDashboard extends StatelessWidget {
               const Text('Range Performance', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 24),
               Expanded(
-                  child: BarChart(
+                  child: flChartGroups.isEmpty
+                      ? const Center(child: Text("No data for this range", style: TextStyle(color: Colors.grey)))
+                      : BarChart(
                       BarChartData(
                           barGroups: flChartGroups,
                           borderData: FlBorderData(show: false),
-                          gridData: const FlGridData(show: false),
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: false,
+                            horizontalInterval: 100, // Show horizontal grid lines for better readability
+                            getDrawingHorizontalLine: (value) {
+                              return FlLine(color: Colors.grey.withOpacity(0.2), strokeWidth: 1);
+                            },
+                          ),
                           titlesData: FlTitlesData(
                             bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                     showTitles: true,
-                                    getTitlesWidget: (v, m) => Text(recentDays[v.toInt()], style: const TextStyle(fontSize: 10))
+                                    getTitlesWidget: (v, m) {
+                                      if (v.toInt() >= 0 && v.toInt() < recentDays.length) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(top: 8.0),
+                                          child: Text(recentDays[v.toInt()], style: const TextStyle(fontSize: 10)),
+                                        );
+                                      }
+                                      return const Text('');
+                                    }
                                 )
                             ),
                             leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -103,7 +127,8 @@ class AnalyticsDashboard extends StatelessWidget {
 
   Widget _buildTopSellersCard() {
     return Container(
-        height: 165,
+      // Dynamic height based on content
+        constraints: const BoxConstraints(minHeight: 120),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
         child: Column(
@@ -111,12 +136,16 @@ class AnalyticsDashboard extends StatelessWidget {
             children: [
               const Text('Top Sellers', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              ...topSellers.map((e) => Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(e.key),
-                    Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold))
-                  ]
+              if (topSellers.isEmpty) const Text("No sales data yet.", style: TextStyle(color: Colors.grey)),
+              ...topSellers.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text(e.key, overflow: TextOverflow.ellipsis)),
+                      Text('${e.value} sold', style: const TextStyle(color: Color(0xFF006E3B), fontWeight: FontWeight.bold))
+                    ]
+                ),
               )),
             ]
         )
@@ -125,7 +154,7 @@ class AnalyticsDashboard extends StatelessWidget {
 
   Widget _buildTeamCard() {
     return Container(
-        height: 165,
+        constraints: const BoxConstraints(minHeight: 120, maxHeight: 200), // Max height to allow scrolling if many baristas
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEEDDDD))),
         child: Column(
@@ -133,14 +162,18 @@ class AnalyticsDashboard extends StatelessWidget {
             children: [
               const Text('Team Performance', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
+              if (revenueByBarista.isEmpty) const Text("No shift data yet.", style: TextStyle(color: Colors.grey)),
               Expanded(
                   child: ListView(
-                      children: revenueByBarista.entries.map((e) => Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(e.key),
-                            Text('DH ${e.value.toStringAsFixed(2)}')
-                          ]
+                      children: revenueByBarista.entries.map((e) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(e.key),
+                              Text('DH ${e.value.toStringAsFixed(2)}')
+                            ]
+                        ),
                       )).toList()
                   )
               ),

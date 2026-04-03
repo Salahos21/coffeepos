@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pos_prototype_0/screens/start_shift_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-// FIX: Pointing back to the components folder!
 import 'screens/pos/active_order_sidebar.dart';
 import 'screens/config/config_screen.dart';
 import 'screens/orders/orders_screen.dart';
@@ -16,15 +16,13 @@ import 'providers/auth_provider.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final authProvider = AuthProvider();
-
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()..loadTheme()),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider.value(value: cartState),
-        ChangeNotifierProvider.value(value: authProvider),
       ],
       child: const TactilePOSApp(),
     ),
@@ -66,18 +64,20 @@ class POSMainLayout extends StatefulWidget {
 class _POSMainLayoutState extends State<POSMainLayout> {
   int _selectedIndex = 0;
 
-  final List<Widget> _screens = const [
-    POSActiveOrderSidebar(),
-    OrdersScreen(),
-    ConfigScreen(),
-  ];
-
   void _handleLogout(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // 1. Clear the data
     authProvider.logout();
+
+    // 2. THE FIX: Instant Snap routing instead of a slow slide animation
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
           (route) => false,
     );
   }
@@ -87,12 +87,18 @@ class _POSMainLayoutState extends State<POSMainLayout> {
     final lang = Provider.of<LanguageProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final currentUser = authProvider.currentUser;
-    final isManager = currentUser?.role == 'Manager';
+
+    // THE FIX: The Null Guard.
+    // If we are actively logging out, freeze the UI as a clean white screen
+    // so it doesn't accidentally draw the StartShiftScreen.
+    if (currentUser == null) {
+      return const Scaffold(backgroundColor: Colors.white);
+    }
+
+    final isManager = currentUser.role == 'Manager';
 
     return Scaffold(
       backgroundColor: Colors.white,
-
-      // TOP BAR: Profile, Role, and Logout
       appBar: AppBar(
         backgroundColor: const Color(0xFF006E3B),
         foregroundColor: Colors.white,
@@ -100,7 +106,7 @@ class _POSMainLayoutState extends State<POSMainLayout> {
           children: [
             const Icon(Icons.coffee, size: 20),
             const SizedBox(width: 8),
-            Text(currentUser?.name ?? 'User', style: const TextStyle(fontSize: 16)),
+            Text(currentUser.name, style: const TextStyle(fontSize: 16)),
           ],
         ),
         actions: [
@@ -108,7 +114,7 @@ class _POSMainLayoutState extends State<POSMainLayout> {
             child: Padding(
               padding: const EdgeInsets.only(right: 16.0),
               child: Text(
-                currentUser?.role == 'Manager' ? (lang.t('manager_role') ?? 'Manager') : (lang.t('barista_role') ?? 'Barista'),
+                isManager ? (lang.t('manager_role') ?? 'Manager') : (lang.t('barista_role') ?? 'Barista'),
                 style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.8)),
               ),
             ),
@@ -121,13 +127,18 @@ class _POSMainLayoutState extends State<POSMainLayout> {
         ],
       ),
 
-      // MAIN CONTENT
       body: IndexedStack(
         index: _selectedIndex,
-        children: _screens,
+        children: [
+          (isManager || authProvider.hasActiveShift)
+              ? const POSActiveOrderSidebar()
+              : const StartShiftScreen(),
+
+          const OrdersScreen(),
+          const ConfigScreen(),
+        ],
       ),
 
-      // BOTTOM NAV
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
